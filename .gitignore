@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log
+
+# 签到系统配置(包含数据库密码, 不入仓)
+attendance_config.ini
+
+# 模型权重(已 gitignore 过大文件)
+*.pt
+*.pth
+*.onnx
+
+# YOLO 运行产物
+runs/
+inference/output/
+
+# 临时文件
+temp_*

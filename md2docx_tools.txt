@@ -1,0 +1,139 @@
+================================================================
+Markdown → Word 转换工具说明
+================================================================
+
+更新日期: 2026-08-30
+维护者: 项目报告自动生成
+
+⚠️ 本机多 Python 环境并存, 实际加载路径与 pip 显示路径不一致, 见 §1 末尾 "踩坑提醒"
+
+----------------------------------------------------------------
+1. 当前使用的工具 (本项目已用)
+----------------------------------------------------------------
+
+工具名: python-docx (Python 库)
+版本: 1.2.0 (已装, 在 3 个 Python 环境都装了)
+安装方式: pip install python-docx (清华源 https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple)
+包大小: ~3 MB
+
+**本机有 3 个 Python 环境同时可用, 都装了 python-docx:**
+
+| 环境 | Python 解释器 | pip 显示的包位置 | Python 运行时实际加载位置 |
+|---|---|---|---|
+| miniconda opencv4 | D:\python\miniconda3\envs\opencv4\python.exe | D:\python\miniconda3\envs\opencv4\lib\site-packages\docx\ | C:\Users\will vicissitude\AppData\Roaming\Python\Python39\site-packages\docx\ |
+| Python Launcher (py) | C:\Users\will vicissitude\AppData\Local\Programs\Python\Python312\python.exe | (未确认) | C:\Users\will vicissitude\AppData\Local\Programs\Python\Python312\Lib\site-packages\docx\ |
+| (其他可能) | - | - | - |
+
+依赖 (python-docx 要求):
+  - lxml >= 3.1.0
+  - typing_extensions >= 4.9.0
+
+调用方式 (任选其一):
+  # 方式 1: Python Launcher (本项目默认, 刚才用这个跑通)
+  py temp_md2docx.py
+
+  # 方式 2: miniconda opencv4 解释器直跑
+  D:\python\miniconda3\envs\opencv4\python.exe temp_md2docx.py
+
+  # 方式 3: 激活 conda 环境再跑
+  conda activate opencv4
+  cd D:\yol\yolov8_facenet
+  python temp_md2docx.py
+
+⚠️ 踩坑提醒:
+  - 你发给我的 pip 输出说 "Requirement already satisfied: python-docx in d:\python\miniconda3\envs\opencv4\lib\site-packages (1.2.0)"
+  - 但实际用 miniconda 解释器 import docx 时, 路径是 C:\Users\will vicissitude\AppData\Roaming\Python\Python39\site-packages\docx\
+  - 这是因为 miniconda env 默认开启 user-site (--user), pip 装在 env 目录, 运行时却去 AppData 找
+  - 不影响使用 (都能跑通), 但路径对不上, 排查时注意
+
+特点:
+  - 纯 Python 库, 不依赖外部二进制
+  - 表格 / 标题 / 列表 / 加粗 / 斜体 / 行内代码 / 链接 全支持
+  - 代码块用灰色背景 + 等宽字体
+  - 中文用 Microsoft YaHei 字体
+  - 输出 .docx 大小: 60-70 KB / 报告
+
+局限:
+  - 不支持 pandoc 那样的高级样式 (代码高亮彩色, 自动 TOC 等)
+  - 不渲染图片 (md 里的 ![](...))
+  - 不渲染 HTML 标签
+
+----------------------------------------------------------------
+2. 转换脚本
+----------------------------------------------------------------
+
+脚本: D:\yol\yolov8_facenet\temp_md2docx.py
+
+  执行命令: py temp_md2docx.py
+
+  脚本功能:
+    - 读 demo_report_leader.md / demo_report_member.md
+    - 用 python-docx 解析 markdown 语法 (标题/表格/列表/代码块/引用/链接)
+    - 输出 demo_report_leader.docx / demo_report_member.docx
+
+  支持的 markdown 语法:
+    # ~ ######    标题 (h1-h6)
+    | a | b |    表格 (Light Grid Accent 1 样式)
+    ```...```    代码块 (浅灰底色 + Consolas 等宽字体)
+    `code`       行内代码
+    **bold**     加粗
+    *italic*     斜体
+    [text](url)  链接 (蓝色下划线)
+    - item       无序列表
+    1. item      有序列表
+    > quote      引用 (斜体 + 左缩进)
+    ---          分隔线
+
+  不支持 (直接当字符串处理):
+    ![](image)   图片
+    <html>       HTML 标签
+
+----------------------------------------------------------------
+3. 历史 / 备选方案
+----------------------------------------------------------------
+
+方案 A: python-docx (当前)      推荐, 轻量
+方案 B: pypandoc + pandoc       质量最高, 但首次要下载 pandoc 二进制 (~50 MB)
+方案 C: pandoc 命令行直转       质量最高, 需手动装 pandoc (~120 MB MSI)
+
+本项目采用方案 A。
+
+----------------------------------------------------------------
+4. 未来如果要升级到 pandoc (方案 B/C)
+----------------------------------------------------------------
+
+下载: https://github.com/jgm/pandoc/releases
+       选 pandoc-3.x-windows-x86_64.msi
+默认安装路径: C:\Program Files\Pandoc\pandoc.exe
+
+pip 路径 (方案 B):
+   pip install pypandoc
+   python -c "import pypandoc; pypandoc.download_pandoc()"
+
+转换命令 (方案 C, 装好后):
+   pandoc demo_report_leader.md -o demo_report_leader.docx --reference-doc=template.docx
+
+----------------------------------------------------------------
+5. 已生成的产物
+----------------------------------------------------------------
+
+D:\yol\yolov8_facenet\
+├── demo_report_leader.md          (组长报告源 md, 1579 行)
+├── demo_report_leader.docx        (转换产物, ~70 KB)
+├── demo_report_member.md          (组员报告源 md, 1455 行)
+├── demo_report_member.docx        (转换产物, ~60 KB)
+├── demo_project_report.md         (完整版备查, 1908 行)
+├── md2docx_tools.txt              (本说明文件)
+└── temp_md2docx.py                (按需放回, 转换脚本, ~170 行)
+
+下次重新生成:
+   1. 编辑 .md 文件
+   2. py temp_md2docx.py   (需要先把 temp_md2docx.py 放回项目根)
+   3. 用 Word/WPS 打开 .docx 查看效果
+
+注意 PowerShell profile 损坏问题 (AGENTS.md L-015):
+   - 'py' 启动器可能走 Python312 而非 miniconda opencv4
+   - 都装了 python-docx, 都能跑
+   - 但若 miniconda opencv4 卸载了 docx, 必须用 'py' 或切换环境
+
+================================================================

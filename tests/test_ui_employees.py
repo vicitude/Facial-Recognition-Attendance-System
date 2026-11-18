@@ -191,6 +191,31 @@ def test_TC_ATT_C08_employees_edit_ok(
     assert db_emp.department == "研发部"  # 其他字段保留
 
 
+def test_employees_edit_without_schedule_opens(app, monkeypatch):
+    from PyQt5 import QtWidgets
+    from types import SimpleNamespace
+    from attendance.services import EmployeeService
+    from attendance.ui_employees import EmployeesTab, EmployeeDialog
+
+    emp = SimpleNamespace(
+        employee_id="100088", name="无班次", department=None,
+        position=None, phone=None, email=None, face_image_path=None,
+        schedule=None, is_active=True,
+    )
+    captured = {}
+
+    def fake_exec(self):
+        captured["opened"] = True
+        return QtWidgets.QDialog.Rejected
+
+    monkeypatch.setattr(EmployeeDialog, "exec_", fake_exec)
+    monkeypatch.setattr(EmployeeService, "get", staticmethod(lambda eid: emp))
+    tab = EmployeesTab()
+    tab._selected_employee_id = lambda: "100088"
+    tab.btn_edit.click()
+    assert captured["opened"] is True
+
+
 def test_TC_ATT_C09_employees_delete_ok(
     app, monkeypatch, face_image, sample_schedule,
 ):

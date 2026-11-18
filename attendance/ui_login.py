@@ -11,6 +11,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from attendance.models import Admin
 from attendance.services import AdminService
 from attendance.ui_utils import show_error
+from attendance.ui_theme import StarBanner, prepare_dialog
 from attendance.utils import AuthFailed
 
 
@@ -31,7 +32,6 @@ class LoginDialog(QtWidgets.QDialog):
 
     def _build_ui(self) -> None:
         self.setWindowTitle(self.APP_TITLE)
-        self.setFixedSize(360, 200)
 
         title_label = QtWidgets.QLabel("签到系统 v1.0.0")
         title_font = QtGui.QFont()
@@ -54,9 +54,12 @@ class LoginDialog(QtWidgets.QDialog):
         form.addRow("密码", self.password_edit)
 
         layout = QtWidgets.QVBoxLayout(self)
-        layout.addWidget(title_label)
+        title_label.deleteLater()
+        layout.addWidget(StarBanner())
         layout.addLayout(form)
         layout.addWidget(self.login_button)
+        prepare_dialog(self, '欢迎回来', '登录管理员账号，开启今天的人员管理。', self.login_button, 500)
+        self.login_button.setDefault(True)
 
     def _wire_signals(self) -> None:
         self.login_button.clicked.connect(self._on_login_clicked)

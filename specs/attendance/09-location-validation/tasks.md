@@ -1,0 +1,12 @@
+# SPEC-006 Tasks
+- T-LOC-001 实现 Coordinate、AllowedLocation 与 Haversine 距离。
+- T-LOC-002 实现允许半径和多地点判定。
+- T-LOC-003 处理不可用定位与参数拒绝。
+- T-LOC-004 编写固定坐标模拟测试。
+- T-LOC-005 编译与聚焦回归。
+- T-LOC-006 定义定位来源适配器契约与模拟来源。
+- T-LOC-007 实现签到前地点判定服务（不写库、不强制接入正式签到）。
+- T-LOC-008 增加可选 Windows Runtime 定位适配器，缺少运行时返回不可用。
+- T-LOC-009 通过 LocationWorker 在后台线程执行定位，避免阻塞 UI。
+- T-LOC-010 在 CheckConfirmDialog 中地点通过后才调用 CheckService.create_record。
+- T-LOC-011 完成自动化回归并记录真实设备验收边界。

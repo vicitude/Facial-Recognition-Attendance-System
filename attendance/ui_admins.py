@@ -20,6 +20,7 @@ from PyQt5 import QtCore, QtWidgets
 
 from attendance.models import Admin
 from attendance.services import AdminService
+from attendance.ui_theme import card, configure_table, label, page_header, prepare_dialog
 from attendance.utils import (
     AdminNotFound,
     InternalError,
@@ -72,6 +73,9 @@ class AdminsTab(QtWidgets.QWidget):
     列: ID / 用户名 / 创建时间 (3 列, ID 仅作展示, admin_id 存 item.data(Qt.UserRole)).
     """
 
+    liveness_requested = QtCore.pyqtSignal(bool)
+    color_liveness_requested = QtCore.pyqtSignal(bool)
+    color_liveness_ratio_changed = QtCore.pyqtSignal(float)
     COLUMNS: list = ["ID", "用户名", "创建时间"]
 
     def __init__(
@@ -91,17 +95,64 @@ class AdminsTab(QtWidgets.QWidget):
 
     def _build_ui(self) -> None:
         layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+        self.admin_summary = label('共 0 个账号', 'badge')
+        header = page_header('管理员管理', '创建和维护可以登录本地系统的管理员账号。')
+        header.layout().addWidget(self.admin_summary)
+        layout.addWidget(header)
+
+        settings_card = card()
+        settings_layout = QtWidgets.QHBoxLayout(settings_card)
+        settings_layout.setContentsMargins(20, 16, 20, 16)
+        settings_text = QtWidgets.QVBoxLayout()
+        settings_text.addWidget(label('活体验证设置', 'sectionTitle'))
+        settings_text.addWidget(label('三次眨眼或彩色光验证；切换前请关闭相机，重启后默认关闭。'))
+        self.btn_color_liveness = QtWidgets.QPushButton('彩色光试运行：关闭')
+        self.btn_color_liveness.setCheckable(True)
+        self.btn_color_liveness.setChecked(False)
+        self.btn_color_liveness.setStyleSheet('QPushButton { border-radius: 22px; min-height: 24px; padding: 10px 22px; }')
+        self.btn_color_liveness.setAccessibleName('彩色光试运行开关')
+        self.color_ratio_spin = QtWidgets.QDoubleSpinBox()
+        self.color_ratio_spin.setRange(50, 100)
+        self.color_ratio_spin.setSingleStep(5)
+        self.color_ratio_spin.setDecimals(0)
+        self.color_ratio_spin.setValue(85)
+        self.color_ratio_spin.setSuffix('%')
+        self.color_ratio_spin.setAccessibleName('彩光合格帧比例')
+        ratio_layout = QtWidgets.QHBoxLayout()
+        ratio_layout.addWidget(QtWidgets.QLabel('合格帧比例'))
+        ratio_layout.addWidget(self.color_ratio_spin)
+        settings_text.addLayout(ratio_layout)
+        settings_layout.addLayout(settings_text, 1)
+        self.btn_liveness = QtWidgets.QPushButton('活体试运行：关闭')
+        self.btn_liveness.setCheckable(True)
+        self.btn_liveness.setChecked(False)
+        self.btn_liveness.setStyleSheet(
+            'QPushButton { border-radius: 22px; min-height: 24px; padding: 10px 22px; }'
+            'QPushButton:checked { background: #7c83e8; color: white; border-color: #7c83e8; }'
+        )
+        self.btn_liveness.setAccessibleName('活体试运行开关')
+        settings_layout.addWidget(self.btn_liveness)
+        settings_layout.addWidget(self.btn_color_liveness)
+        layout.addWidget(settings_card)
 
         # 工具栏
         toolbar = QtWidgets.QHBoxLayout()
+        toolbar_card = card()
+        toolbar_card_layout = QtWidgets.QHBoxLayout(toolbar_card)
+        toolbar_card_layout.setContentsMargins(16, 12, 16, 12)
         self.btn_add = QtWidgets.QPushButton("新增")
         self.btn_delete = QtWidgets.QPushButton("删除")
         self.btn_refresh = QtWidgets.QPushButton("刷新")
+        self.btn_add.setObjectName('primary')
+        self.btn_delete.setObjectName('danger')
         toolbar.addWidget(self.btn_add)
         toolbar.addWidget(self.btn_delete)
         toolbar.addWidget(self.btn_refresh)
         toolbar.addStretch(1)
-        layout.addLayout(toolbar)
+        toolbar_card_layout.addLayout(toolbar)
+        layout.addWidget(toolbar_card)
 
         # 表格
         self.table = QtWidgets.QTableWidget()
@@ -117,12 +168,29 @@ class AdminsTab(QtWidgets.QWidget):
             QtWidgets.QAbstractItemView.NoEditTriggers
         )
         self.table.verticalHeader().setVisible(False)
+        configure_table(self.table)
         layout.addWidget(self.table)
 
         # 初始: 无选中 → btn_delete 禁用
         self.btn_delete.setEnabled(False)
 
+    def set_liveness_state(self, enabled: bool) -> None:
+        """同步旧活体实际状态，不触发新的切换请求。"""
+        previous = self.btn_liveness.blockSignals(True)
+        self.btn_liveness.setChecked(bool(enabled))
+        self.btn_liveness.setText('活体试运行：开启' if enabled else '活体试运行：关闭')
+        self.btn_liveness.blockSignals(previous)
+
+    def set_color_liveness_state(self, enabled: bool) -> None:
+        previous = self.btn_color_liveness.blockSignals(True)
+        self.btn_color_liveness.setChecked(bool(enabled))
+        self.btn_color_liveness.setText('彩色光试运行：开启' if enabled else '彩色光试运行：关闭')
+        self.btn_color_liveness.blockSignals(previous)
+
     def _wire_signals(self) -> None:
+        self.btn_liveness.clicked.connect(self.liveness_requested.emit)
+        self.btn_color_liveness.clicked.connect(self.color_liveness_requested.emit)
+        self.color_ratio_spin.valueChanged.connect(lambda value: self.color_liveness_ratio_changed.emit(value / 100.0))
         self.btn_add.clicked.connect(self._on_create_clicked)
         self.btn_delete.clicked.connect(self._on_delete_clicked)
         self.btn_refresh.clicked.connect(self._refresh_table)
@@ -164,6 +232,7 @@ class AdminsTab(QtWidgets.QWidget):
             )
             return
         self.table.setRowCount(len(admins))
+        self.admin_summary.setText(f'共 {len(admins)} 个账号')
         for r, admin in enumerate(admins):
             id_item = QtWidgets.QTableWidgetItem(str(admin.id))
             id_item.setData(QtCore.Qt.UserRole, admin.id)
@@ -275,7 +344,6 @@ class AdminCreateDialog(QtWidgets.QDialog):
     def _build_ui(self) -> None:
         self.setWindowTitle("新增管理员")
         self.setModal(True)
-        self.setFixedSize(360, 180)
 
         self.username_edit = QtWidgets.QLineEdit()
         self.username_edit.setPlaceholderText("用户名 (≤ 50 字符)")
@@ -300,6 +368,7 @@ class AdminCreateDialog(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
         layout.addLayout(form)
         layout.addLayout(btn_layout)
+        prepare_dialog(self, '新增管理员', '创建可登录本地管理系统的账号。', self.btn_save)
 
     def _wire_signals(self) -> None:
         self.btn_save.clicked.connect(self._on_save_clicked)

@@ -79,6 +79,17 @@ def make_main_window(app, monkeypatch):
 # ============================================================
 
 
+def test_color_ratio_control_defaults_to_85_percent(qtbot, app, monkeypatch):
+    tab = AdminsTab.__new__(AdminsTab)
+    QtWidgets.QWidget.__init__(tab)
+    tab._current_admin = None
+    tab._build_ui()
+    assert tab.color_ratio_spin.value() == 85
+    assert tab.color_ratio_spin.minimum() == 50
+    assert tab.color_ratio_spin.maximum() == 100
+    tab.deleteLater()
+
+
 def _mock_admin_create_exec(monkeypatch, dialog):
     """mock AdminCreateDialog 实例的 exec_ 走真实 self._on_save_clicked() 后返回 result.
 

@@ -25,6 +25,7 @@ logs/
 
 # 签到系统配置(包含数据库密码, 不入仓)
 attendance_config.ini
+attendance_test_config.ini
 
 # 模型权重(已 gitignore 过大文件)
 *.pt
@@ -37,3 +38,6 @@ inference/output/
 
 # 临时文件
 temp_*
+
+# 本地研究源码与模型下载缓存
+research_assets/

@@ -54,6 +54,16 @@ class Admin(BaseModel):
         table_name = "admins"
 
 
+class AdminRegistrationCode(BaseModel):
+    id = IntegerField(primary_key=True)
+    salt = CharField(32)
+    code_hash = CharField(64)
+
+    class Meta:
+        table_name = 'admin_registration_codes'
+        table_settings = ['ENGINE=InnoDB']
+
+
 class Schedule(BaseModel):
     """可配置班次，时间字段均为本地时间。"""
 

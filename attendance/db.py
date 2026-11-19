@@ -70,19 +70,19 @@ def init_db(config: dict) -> None:
 
     # 把 database 绑到所有 Model
     from attendance.models import (
-        Admin, Schedule, Employee, EmployeeSchedule, FaceTemplate, CheckRecord,
+        Admin, AdminRegistrationCode, Schedule, Employee, EmployeeSchedule, FaceTemplate, CheckRecord,
     )
+    from attendance.services import AdminService
 
-    for model in (Admin, Schedule, Employee, EmployeeSchedule, FaceTemplate, CheckRecord):
+    models = (Admin, AdminRegistrationCode, Schedule, Employee, EmployeeSchedule, FaceTemplate, CheckRecord)
+    for model in models:
         model._meta.database = real_db
 
     # 第 3 步: 建表 (safe=True, 已存在不报错)
     try:
         real_db.connect(reuse_if_open=True)
-        real_db.create_tables(
-            [Admin, Schedule, Employee, EmployeeSchedule, FaceTemplate, CheckRecord],
-            safe=True,
-        )
+        real_db.create_tables(models, safe=True)
+        AdminService.initialize_registration_code()
         # 兼容既有数据库：MySQL 版本不统一，先检查字段再补列。
         schedule_columns = {row[0] for row in real_db.execute_sql("SHOW COLUMNS FROM schedules").fetchall()}
         schedule_defs = {

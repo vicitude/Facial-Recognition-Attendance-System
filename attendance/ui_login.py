@@ -15,6 +15,7 @@ class LoginDialog(QtWidgets.QDialog):
     """登录对话框。"""
 
     APP_TITLE: str = "管理员登录"
+    RegisterRequested = 2
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
@@ -45,6 +46,10 @@ class LoginDialog(QtWidgets.QDialog):
         self.cancel_button = QtWidgets.QPushButton("取消")
         self.cancel_button.setAutoDefault(False)
         buttons = QtWidgets.QHBoxLayout()
+        self.register_button = QtWidgets.QPushButton('凭设置码注册')
+        self.register_button.setAutoDefault(False)
+        self.register_button.hide()
+        buttons.addWidget(self.register_button)
         buttons.addStretch(1)
         buttons.addWidget(self.cancel_button)
         buttons.addWidget(self.login_button)
@@ -59,6 +64,7 @@ class LoginDialog(QtWidgets.QDialog):
     def _wire_signals(self) -> None:
         self.login_button.clicked.connect(self._on_login_clicked)
         self.cancel_button.clicked.connect(self.reject)
+        self.register_button.clicked.connect(lambda: self.done(self.RegisterRequested))
 
     # ----------------------------------------------------------
     # 槽函数

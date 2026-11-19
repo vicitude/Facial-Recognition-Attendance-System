@@ -92,6 +92,43 @@ def test_color_ratio_control_defaults_to_85_percent(qtbot, app, monkeypatch):
     tab.deleteLater()
 
 
+def test_change_registration_code_button_rechecks_current_password(qtbot, app, monkeypatch):
+    from attendance.ui_admin_setup import ChangeRegistrationCodeDialog
+    from attendance.utils import AuthFailed
+
+    password = 'fixture-password'
+    admin = AdminService.create('code-owner', password)
+    tab = AdminsTab(admin)
+    qtbot.addWidget(tab)
+    calls = []
+    new_code = 'fixture-new-code'
+
+    def change(admin_id, current_password, code):
+        calls.append((admin_id, current_password, code))
+        if current_password != password:
+            raise AuthFailed('incorrect')
+
+    def exec_dialog(dialog):
+        dialog.password_edit.setText('wrong-password')
+        dialog.code_edit.setText(new_code)
+        dialog.confirmation_edit.setText('does-not-match')
+        dialog.save_button.click()
+        assert not calls
+        dialog.confirmation_edit.setText(new_code)
+        dialog.save_button.click()
+        assert dialog.result() != QtWidgets.QDialog.Accepted
+        assert '不正确' in dialog.error_label.text()
+        dialog.password_edit.setText(password)
+        dialog.save_button.click()
+        assert dialog.password_edit.text() == dialog.code_edit.text() == dialog.confirmation_edit.text() == ''
+        return dialog.result()
+
+    monkeypatch.setattr(AdminService, 'change_registration_code', change)
+    monkeypatch.setattr(ChangeRegistrationCodeDialog, 'exec_', exec_dialog)
+    tab.btn_change_registration_code.click()
+    assert calls == [(admin.id, 'wrong-password', new_code), (admin.id, password, new_code)]
+
+
 def _mock_admin_create_exec(monkeypatch, dialog):
     """mock AdminCreateDialog 实例的 exec_ 走真实 self._on_save_clicked() 后返回 result.
 

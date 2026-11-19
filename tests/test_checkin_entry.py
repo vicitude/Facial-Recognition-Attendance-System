@@ -46,6 +46,7 @@ def ui(monkeypatch):
     authenticate = Mock(side_effect=AuthFailed('测试认证未通过'))
     show_error = Mock()
     close_db = Mock()
+    monkeypatch.setattr(services.AdminService, 'has_admins', Mock(return_value=True))
     monkeypatch.setattr(services.AdminService, 'authenticate', authenticate)
     monkeypatch.setattr(ui_login, 'show_error', show_error)
     monkeypatch.setattr(db, 'close_db', close_db)
@@ -148,18 +149,18 @@ def _drive_login(monkeypatch, ui, interact):
     return verify
 
 
-@pytest.mark.parametrize('default_admin_fails', [False, True], ids=['startup', 'cleanup-on-failure'])
-def test_TC_ENTRY_001(monkeypatch, ui, app, default_admin_fails):
+@pytest.mark.parametrize('init_fails', [False, True], ids=['startup', 'database-failure'])
+def test_TC_ENTRY_001(monkeypatch, ui, app, init_fails):
     import attendance_ui as entry
 
-    config = {'admin': {'default_username': 'fixture-admin', 'default_password': 'fixture-secret'}}
+    config = {'database': {}, 'schedule_seed': {}}
     calls = Mock()
     calls.load.return_value = config
-    if default_admin_fails:
-        calls.ensure_default.side_effect = ui.InternalError('测试初始化失败')
+    if init_fails:
+        calls.init_db.side_effect = ui.InternalError('测试初始化失败')
     monkeypatch.setattr(entry.ConfigService, 'load', calls.load)
     monkeypatch.setattr(entry, 'init_db', calls.init_db)
-    monkeypatch.setattr(entry.AdminService, 'ensure_default', calls.ensure_default)
+    monkeypatch.setattr(ui.services.AdminService, 'ensure_default', calls.ensure_default)
     monkeypatch.setattr(entry, 'close_db', calls.close_db)
     monkeypatch.setattr(entry, '_critical', calls.critical)
     login = Mock(return_value=QtWidgets.QDialog.Rejected)
@@ -193,19 +194,18 @@ def test_TC_ENTRY_001(monkeypatch, ui, app, default_admin_fails):
     monkeypatch.setattr(entry, 'CheckInWindow', create_window)
     monkeypatch.setattr(entry, '_application', lambda: SimpleNamespace(exec_=run_loop))
     try:
-        assert entry.main() == (1 if default_admin_fails else 17)
-        assert calls.mock_calls[:3] == [
-            call.load(), call.init_db(config), call.ensure_default('fixture-admin', 'fixture-secret'),
-        ]
-        if default_admin_fails:
+        assert entry.main() == (1 if init_fails else 17)
+        assert calls.mock_calls[:2] == [call.load(), call.init_db(config)]
+        if init_fails:
             calls.critical.assert_called_once()
-            assert calls.mock_calls[-1] == call.close_db()
             assert not windows
             calls.event_loop.assert_not_called()
         else:
             calls.critical.assert_not_called()
-            assert calls.mock_calls[3:] == [call.create_kiosk(), call.event_loop(), call.close_db()]
-        calls.close_db.assert_called_once_with()
+            assert calls.mock_calls[2:] == [call.create_kiosk(), call.event_loop(), call.close_db()]
+            calls.close_db.assert_called_once_with()
+        calls.ensure_default.assert_not_called()
+        ui.services.AdminService.has_admins.assert_not_called()
         login.assert_not_called()
         ui.authenticate.assert_not_called()
         ui.capture.assert_not_called()
@@ -331,7 +331,7 @@ def test_PT_ENTRY_101(monkeypatch, ui, window, outcome):
 def test_PT_ENTRY_102(monkeypatch, ui, window, app, exit_via):
     tab = window.checkin_tab
     ui.authenticate.side_effect = None
-    ui.authenticate.return_value = SimpleNamespace(id=1, username='fixture-admin')
+    ui.authenticate.return_value = SimpleNamespace(id=1, username='fixture-admin', is_super=True)
     quit_app = Mock()
     monkeypatch.setattr(app, 'quit', quit_app)
     monkeypatch.setattr(QtWidgets.QApplication, 'quit', quit_app)
@@ -393,3 +393,84 @@ def test_PT_ENTRY_102(monkeypatch, ui, window, app, exit_via):
     assert window._admin_window is None
     assert window.isVisible()
     ui.capture.assert_not_called()
+
+
+@pytest.mark.parametrize('has_admins', [False, True])
+@pytest.mark.parametrize('outcome', ['cancel', 'mismatch', 'wrong-code', 'write-error', 'success'])
+def test_PT_SETUP_102(monkeypatch, ui, window, outcome, has_admins):
+    from attendance.utils import AuthFailed
+
+    admin_service = ui.services.AdminService
+    admin_service.has_admins.return_value = has_admins
+    create = Mock(return_value=SimpleNamespace(username='owner'))
+    if outcome == 'wrong-code':
+        create.side_effect = AuthFailed('错误码')
+    if outcome == 'write-error':
+        create.side_effect = ui.InternalError('不要泄漏的数据库信息')
+    monkeypatch.setattr(admin_service, 'register_with_code', create)
+
+    def setup_exec(dialog):
+        password = 'fixture-password'
+        for field in (dialog.code_edit, dialog.password_edit, dialog.confirmation_edit):
+            assert field.echoMode() == QtWidgets.QLineEdit.Password
+        dialog.code_edit.setText('fixture-code')
+        dialog.username_edit.setText(' owner ')
+        dialog.password_edit.setText(password)
+        dialog.confirmation_edit.setText('different-password' if outcome == 'mismatch' else password)
+        if outcome != 'cancel':
+            dialog.create_button.click()
+        if outcome != 'success':
+            assert dialog.saved_username is None
+            if outcome == 'mismatch':
+                assert '不一致' in dialog.error_label.text()
+            if outcome == 'wrong-code':
+                assert '不正确' in dialog.error_label.text()
+            if outcome == 'write-error':
+                assert '不要泄漏' not in dialog.error_label.text()
+            dialog.cancel_button.click()
+        for field in (dialog.code_edit, dialog.password_edit, dialog.confirmation_edit):
+            assert field.text() == ''
+        return dialog.result()
+
+    monkeypatch.setattr(ui.kiosk.RegistrationDialog, 'exec_', setup_exec)
+    seen = []
+
+    def login_exec(dialog):
+        seen.append(dialog.username_edit.text())
+        assert not dialog.register_button.isHidden()
+        assert dialog.password_edit.text() == ''
+        assert dialog.admin is None
+        if has_admins and len(seen) == 1:
+            dialog.register_button.click()
+        else:
+            dialog.reject()
+        return dialog.result()
+
+    monkeypatch.setattr(ui.login.LoginDialog, 'exec_', login_exec)
+    window.settings_button.click()
+    expected = [''] if has_admins else []
+    if outcome == 'success':
+        expected.append('owner')
+    elif has_admins:
+        expected.append('')
+    assert seen == expected
+    if outcome in ('cancel', 'mismatch'):
+        create.assert_not_called()
+    else:
+        create.assert_called_once_with('fixture-code', 'owner', 'fixture-password')
+    assert window._admin_window is None
+    ui.authenticate.assert_not_called()
+    assert window.isVisible()
+
+
+def test_setup_status_error_does_not_offer_setup(monkeypatch, ui, window):
+    ui.services.AdminService.has_admins.side_effect = ui.InternalError('DB unavailable')
+    setup, login, show_error = Mock(), Mock(), Mock()
+    monkeypatch.setattr(ui.kiosk, 'RegistrationDialog', setup)
+    monkeypatch.setattr(ui.kiosk, 'LoginDialog', login)
+    monkeypatch.setattr(ui.kiosk, 'show_error', show_error)
+    window.settings_button.click()
+    setup.assert_not_called()
+    login.assert_not_called()
+    assert '无法读取管理员状态' in show_error.call_args.args[2]
+    assert window._admin_window is None

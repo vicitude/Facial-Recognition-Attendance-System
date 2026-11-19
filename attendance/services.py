@@ -10,6 +10,8 @@
 """
 
 import base64
+import hashlib
+import hmac
 import os
 import re
 from datetime import date, datetime
@@ -19,7 +21,7 @@ import peewee
 from attendance.attendance_rules import decide_check
 
 from attendance.models import (
-    Admin, CheckRecord, Employee, EmployeeSchedule, FaceTemplate, Schedule,
+    Admin, AdminRegistrationCode, CheckRecord, Employee, EmployeeSchedule, FaceTemplate, Schedule,
 )
 from attendance.face_template_crypto import decrypt_vector, encrypt_vector
 from attendance.utils import (
@@ -793,6 +795,71 @@ class AdminService:
             "action=admin.delete admin_id=%s username=%s",
             admin_id, admin.username,
         )
+
+    @staticmethod
+    def has_admins() -> bool:
+        try:
+            return Admin.select().exists()
+        except peewee.PeeweeException as exc:
+            raise InternalError('无法读取管理员状态') from exc
+
+    @staticmethod
+    def _registration_code_hash(code: str, salt: bytes) -> str:
+        return hashlib.pbkdf2_hmac('sha256', code.encode('utf-8'), salt, 600_000).hex()
+
+    @staticmethod
+    def _registration_code_values(code: str) -> dict:
+        salt = os.urandom(16)
+        return {'salt': salt.hex(), 'code_hash': AdminService._registration_code_hash(code, salt)}
+
+    @staticmethod
+    def initialize_registration_code() -> None:
+        if AdminRegistrationCode.get_or_none(AdminRegistrationCode.id == 1) is not None:
+            return
+        try:
+            AdminRegistrationCode.create(id=1, **AdminService._registration_code_values('123456'))
+        except peewee.IntegrityError:
+            if AdminRegistrationCode.get_or_none(AdminRegistrationCode.id == 1) is None:
+                raise
+
+    @staticmethod
+    def _locked_registration_code() -> AdminRegistrationCode:
+        return AdminRegistrationCode.select().where(AdminRegistrationCode.id == 1).for_update().get()
+
+    @staticmethod
+    def register_with_code(code: str, username: str, password: str) -> Admin:
+        username = username.strip()
+        if not 1 <= len(username) <= 50 or not 12 <= len(password) <= 128 or not password.strip():
+            raise InternalError('用户名或密码不符合要求')
+        if not 1 <= len(code) <= 128 or not code.strip():
+            raise AuthFailed('设置码不正确')
+        try:
+            with AdminRegistrationCode._meta.database.atomic():
+                setting = AdminService._locked_registration_code()
+                supplied = AdminService._registration_code_hash(code, bytes.fromhex(setting.salt))
+                if not hmac.compare_digest(setting.code_hash, supplied):
+                    raise AuthFailed('设置码不正确')
+                return AdminService.create(username, password)
+        except (peewee.PeeweeException, ValueError) as exc:
+            raise InternalError('注册失败') from exc
+
+    @staticmethod
+    def change_registration_code(admin_id: int, password: str, new_code: str) -> None:
+        if not 12 <= len(new_code) <= 128 or not new_code.strip():
+            raise InternalError('新设置码不符合要求')
+        try:
+            with AdminRegistrationCode._meta.database.atomic():
+                setting = AdminService._locked_registration_code()
+                admin = Admin.get_or_none((Admin.id == admin_id) & Admin.is_super)
+                if admin is None or not hmac.compare_digest(admin.password_hash, sha256_hex(password)):
+                    raise AuthFailed('管理员密码不正确或账号无权更换设置码')
+                supplied = AdminService._registration_code_hash(new_code, bytes.fromhex(setting.salt))
+                if hmac.compare_digest(setting.code_hash, supplied):
+                    raise InternalError('新设置码不能与当前设置码相同')
+                values = AdminService._registration_code_values(new_code)
+                AdminRegistrationCode.update(**values).where(AdminRegistrationCode.id == 1).execute()
+        except (peewee.PeeweeException, ValueError) as exc:
+            raise InternalError('设置码更换失败') from exc
 
     @staticmethod
     def ensure_default(default_username: str, default_password: str) -> None:

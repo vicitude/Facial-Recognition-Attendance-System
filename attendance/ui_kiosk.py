@@ -4,10 +4,14 @@ from typing import Optional
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from attendance.services import AdminService
+from attendance.ui_admin_setup import RegistrationDialog
 from attendance.ui_checkin import CheckInTab
 from attendance.ui_login import LoginDialog
 from attendance.ui_main import MainWindow
 from attendance.ui_theme import apply_theme, label
+from attendance.ui_utils import show_error
+from attendance.utils import InternalError
 
 
 class CheckInWindow(QtWidgets.QMainWindow):
@@ -65,15 +69,36 @@ class CheckInWindow(QtWidgets.QMainWindow):
             if not tab._close_camera():
                 return
 
-        dialog = LoginDialog(self)
         try:
-            result = dialog.exec_()
-            admin = dialog.admin
-        finally:
-            dialog.password_edit.clear()
-            dialog.deleteLater()
-        if result != QtWidgets.QDialog.Accepted or admin is None:
+            has_admins = AdminService.has_admins()
+        except InternalError:
+            show_error(self, 'INTERNAL_ERROR', '无法读取管理员状态，请检查数据库连接后重试。')
             return
+
+        username = None
+        if not has_admins:
+            username = self._register_admin()
+            if username is None:
+                return
+
+        while True:
+            dialog = LoginDialog(self)
+            dialog.register_button.show()
+            if username is not None:
+                dialog.username_edit.setText(username)
+                dialog.password_edit.setFocus()
+            try:
+                result = dialog.exec_()
+                admin = dialog.admin
+            finally:
+                dialog.password_edit.clear()
+                dialog.deleteLater()
+            if result == LoginDialog.RegisterRequested:
+                username = self._register_admin()
+                continue
+            if result != QtWidgets.QDialog.Accepted or admin is None:
+                return
+            break
 
         window = MainWindow(admin, tab, parent=self)
         window.setWindowFlag(QtCore.Qt.Window, True)
@@ -82,6 +107,15 @@ class CheckInWindow(QtWidgets.QMainWindow):
         window.destroyed.connect(self._clear_admin_window)
         self._admin_window = window
         window.show()
+
+    def _register_admin(self) -> Optional[str]:
+        dialog = RegistrationDialog(self)
+        try:
+            if dialog.exec_() == QtWidgets.QDialog.Accepted:
+                return dialog.saved_username
+            return None
+        finally:
+            dialog.deleteLater()
 
     def _clear_admin_window(self) -> None:
         self._admin_window = None

@@ -20,6 +20,7 @@ from PyQt5 import QtCore, QtWidgets
 
 from attendance.models import Admin
 from attendance.services import AdminService
+from attendance.ui_admin_setup import ChangeRegistrationCodeDialog
 from attendance.ui_theme import card, configure_table, label, page_header, prepare_dialog
 from attendance.utils import (
     AdminNotFound,
@@ -151,6 +152,9 @@ class AdminsTab(QtWidgets.QWidget):
         toolbar.addWidget(self.btn_delete)
         toolbar.addWidget(self.btn_refresh)
         toolbar.addStretch(1)
+        self.btn_change_registration_code = QtWidgets.QPushButton('更换设置码')
+        self.btn_change_registration_code.setEnabled(bool(self._current_admin and self._current_admin.is_super))
+        toolbar.addWidget(self.btn_change_registration_code)
         toolbar_card_layout.addLayout(toolbar)
         layout.addWidget(toolbar_card)
 
@@ -194,6 +198,7 @@ class AdminsTab(QtWidgets.QWidget):
         self.btn_add.clicked.connect(self._on_create_clicked)
         self.btn_delete.clicked.connect(self._on_delete_clicked)
         self.btn_refresh.clicked.connect(self._refresh_table)
+        self.btn_change_registration_code.clicked.connect(self._on_change_registration_code)
         # 选中变化时, 动态启用/禁用 btn_delete (自删保护)
         self.table.itemSelectionChanged.connect(
             self._on_selection_changed
@@ -202,6 +207,14 @@ class AdminsTab(QtWidgets.QWidget):
     # ----------------------------------------------------------
     # 内部辅助
     # ----------------------------------------------------------
+
+    def _on_change_registration_code(self) -> None:
+        dialog = ChangeRegistrationCodeDialog(self._current_admin.id, self)
+        try:
+            if dialog.exec_() == QtWidgets.QDialog.Accepted:
+                self._show_status('设置码已更换')
+        finally:
+            dialog.deleteLater()
 
     def _selected_admin_id(self) -> Optional[int]:
         """返回当前选中行的 admin_id (从 item.data(Qt.UserRole) 读), 无选中返 None."""

@@ -1,0 +1,10 @@
+openapi: 3.1.0
+info:
+  title: 彩色光活体本地对象契约
+  version: v1.1.0
+  description: 本地 Python 对象，不提供网络端点。
+paths: {}
+components:
+  schemas:
+    ColorResult:
+      $ref: './color_result.schema.json'

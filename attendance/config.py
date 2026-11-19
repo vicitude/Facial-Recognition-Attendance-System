@@ -25,7 +25,6 @@ class ConfigService:
           {
             "database": {"host": str, "port": int, "user": str,
                          "password": str, "database": str, "charset": str},
-            "admin": {"default_username": str, "default_password": str},
             "schedule_seed": {"name": str, "work_start": str,
                               "work_end": str, "late": int, "early": int}
           }
@@ -51,10 +50,6 @@ class ConfigService:
                     "password": parser.get("database", "password"),
                     "database": parser.get("database", "database"),
                     "charset": parser.get("database", "charset"),
-                },
-                "admin": {
-                    "default_username": parser.get("admin", "default_username"),
-                    "default_password": parser.get("admin", "default_password"),
                 },
                 "schedule_seed": {
                     "name": parser.get("schedule_seed", "name"),
@@ -95,10 +90,6 @@ class ConfigService:
             "database = attendance_db\n"
             "charset = utf8mb4\n"
             "\n"
-            "[admin]\n"
-            "default_username = admin\n"
-            "default_password = admin123\n"
-            "\n"
             "[schedule_seed]\n"
             "name = 常规班\n"
             "work_start = 08:00:00\n"
@@ -127,12 +118,6 @@ class ConfigService:
             assert isinstance(db["password"], str)
             assert isinstance(db["database"], str)
             assert db["charset"] in ("utf8", "utf8mb4")
-
-            admin = d["admin"]
-            assert isinstance(admin["default_username"], str)
-            assert 3 <= len(admin["default_username"]) <= 50
-            assert isinstance(admin["default_password"], str)
-            assert 6 <= len(admin["default_password"]) <= 50
 
             seed = d["schedule_seed"]
             assert isinstance(seed["name"], str) and 1 <= len(seed["name"]) <= 50

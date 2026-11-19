@@ -1,0 +1,50 @@
+{
+  "torch": "2.8.0+cu126",
+  "device": "cuda:0",
+  "gpu": "NVIDIA GeForce RTX 3050 Laptop GPU",
+  "frame_shape": [
+    1440,
+    810,
+    3
+  ],
+  "image_sha256": "782eabe7f7c821b2fc3b8f93ef8eedbb71980bff3aa74b016dfe4d72dc0b303c",
+  "weights_sha256": "39b18262cd6f6b259790fed3b6421c11f17ced29a8633c899bab2445a1d73ae7",
+  "warmup": 5,
+  "iterations": 20,
+  "input_size": 640,
+  "precision": "float32",
+  "results": {
+    "original": {
+      "median_ms": 22.262800000000915,
+      "p95_ms": 25.647814999999685,
+      "min_ms": 18.713500000000494,
+      "boxes": [
+        [
+          390,
+          724,
+          523,
+          907,
+          0.9183664321899414,
+          0,
+          "face"
+        ]
+      ]
+    },
+    "inference_mode": {
+      "median_ms": 18.569049999999088,
+      "p95_ms": 20.580695000001374,
+      "min_ms": 16.851000000000838,
+      "boxes": [
+        [
+          390,
+          724,
+          523,
+          907,
+          0.9183664321899414,
+          0,
+          "face"
+        ]
+      ]
+    }
+  }
+}

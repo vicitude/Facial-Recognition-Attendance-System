@@ -6,10 +6,8 @@ from PyQt5 import QtCore, QtWidgets
 
 from attendance.config import ConfigService
 from attendance.db import close_db, init_db
-from attendance.services import AdminService
 from attendance.ui_kiosk import CheckInWindow
 from attendance.ui_theme import apply_theme
-from attendance.utils import InternalError
 
 
 def main() -> int:
@@ -27,16 +25,6 @@ def main() -> int:
         return 1
 
     try:
-        try:
-            admin_default = config["admin"]
-            AdminService.ensure_default(
-                admin_default["default_username"],
-                admin_default["default_password"],
-            )
-        except InternalError as e:
-            _critical(f"默认管理员创建失败: {e}")
-            return 1
-
         app = _application()
         window = CheckInWindow()
         window.show()

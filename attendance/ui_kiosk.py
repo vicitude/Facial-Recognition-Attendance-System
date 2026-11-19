@@ -4,10 +4,14 @@ from typing import Optional
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from attendance.services import AdminService
+from attendance.ui_admin_setup import FirstAdminDialog
 from attendance.ui_checkin import CheckInTab
 from attendance.ui_login import LoginDialog
 from attendance.ui_main import MainWindow
 from attendance.ui_theme import apply_theme, label
+from attendance.ui_utils import show_error
+from attendance.utils import InternalError
 
 
 class CheckInWindow(QtWidgets.QMainWindow):
@@ -65,7 +69,26 @@ class CheckInWindow(QtWidgets.QMainWindow):
             if not tab._close_camera():
                 return
 
+        try:
+            has_admins = AdminService.has_admins()
+        except InternalError:
+            show_error(self, 'INTERNAL_ERROR', '无法读取管理员状态，请检查数据库连接后重试。')
+            return
+
+        username = None
+        if not has_admins:
+            setup = FirstAdminDialog(self)
+            try:
+                if setup.exec_() != QtWidgets.QDialog.Accepted or setup.saved_username is None:
+                    return
+                username = setup.saved_username
+            finally:
+                setup.deleteLater()
+
         dialog = LoginDialog(self)
+        if username is not None:
+            dialog.username_edit.setText(username)
+            dialog.password_edit.setFocus()
         try:
             result = dialog.exec_()
             admin = dialog.admin

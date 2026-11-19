@@ -795,6 +795,34 @@ class AdminService:
         )
 
     @staticmethod
+    def has_admins() -> bool:
+        try:
+            return Admin.select().exists()
+        except peewee.PeeweeException as exc:
+            raise InternalError('无法读取管理员状态') from exc
+
+    @staticmethod
+    def create_first(username: str, password: str) -> Optional[Admin]:
+        username = username.strip()
+        if not 1 <= len(username) <= 50 or not 12 <= len(password) <= 128 or not password.strip():
+            raise InternalError('首个管理员的用户名或密码不符合要求')
+
+        db = Admin._meta.database
+        lock_name = 'attendance:first:' + sha256_hex(db.database.lower())[:40]
+        try:
+            acquired = db.execute_sql('SELECT GET_LOCK(%s, 5)', (lock_name,)).fetchone()
+            if acquired != (1,):
+                raise InternalError('无法锁定管理员首次设置')
+            try:
+                if AdminService.has_admins():
+                    return None
+                return AdminService.create(username, password)
+            finally:
+                db.execute_sql('SELECT RELEASE_LOCK(%s)', (lock_name,)).fetchone()
+        except peewee.PeeweeException as exc:
+            raise InternalError('无法创建首个管理员') from exc
+
+    @staticmethod
     def ensure_default(default_username: str, default_password: str) -> None:
         """admins 表为空时插入默认账号;否则无操作。
 

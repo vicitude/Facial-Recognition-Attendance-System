@@ -25,15 +25,6 @@ def app():
     yield a
 
 
-@pytest.fixture(autouse=True)
-def _patch_sys_exit(monkeypatch):
-    """LoginDialog.closeEvent 会调 sys.exit(0) 杀掉 pytest 进程,
-    这里改成 raise SystemExit, 让 C-04 用 pytest.raises 验证."""
-    def fake_exit(code=0):
-        raise SystemExit(code)
-    monkeypatch.setattr(sys, "exit", fake_exit)
-
-
 # ============================================================
 # TC-ATT-C01 / C02 / C03 / C04
 # ============================================================
@@ -47,7 +38,7 @@ def test_TC_ATT_C01_login_dialog_launches(app):
     AdminService.ensure_default("admin", "admin123")
 
     dlg = LoginDialog()
-    assert dlg.windowTitle() == "签到系统 v1.0.0"
+    assert dlg.windowTitle() == LoginDialog.APP_TITLE == "管理员登录"
     assert dlg.password_edit.echoMode() == dlg.password_edit.Password
 
 
@@ -91,20 +82,19 @@ def test_TC_ATT_C03_login_failed_shows_warning(app, monkeypatch):
     assert dlg.result() != dlg.Accepted
 
 
-def test_TC_ATT_C04_login_close_triggers_exit(app):
-    """C-04: LoginDialog 的 closeEvent 触发 sys.exit(0) → SystemExit(0).
-
-    注: offscreen 平台下 dlg.close() 不触发 closeEvent (Qt 已知行为),
-    这里直接调 closeEvent, 测的是 closeEvent → sys.exit 的契约.
-    """
-    from PyQt5 import QtGui
+def test_TC_ATT_C04_login_close_rejects_dialog(app):
+    """C-04: 关闭或取消只拒绝管理员登录对话框，不退出应用。"""
     from attendance.ui_login import LoginDialog
-    from attendance.services import AdminService
-
-    AdminService.ensure_default("admin", "admin123")
 
     dlg = LoginDialog()
-    event = QtGui.QCloseEvent()
-    with pytest.raises(SystemExit) as exc_info:
-        dlg.closeEvent(event)
-    assert exc_info.value.code == 0
+    dlg.show()
+    assert dlg.close()
+    assert not dlg.isVisible()
+    assert dlg.result() == dlg.Rejected
+    assert dlg.admin is None
+
+    dlg.show()
+    dlg.cancel_button.click()
+    assert not dlg.isVisible()
+    assert dlg.result() == dlg.Rejected
+    assert dlg.admin is None

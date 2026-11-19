@@ -1,7 +1,6 @@
 """SPEC-001-D 端到端测试 (7 个 TC, 与 spec §2.1 + §7 覆盖矩阵一一对应).
 
-与 C 层 18 个 UI 单元测试的关系: C 层测单一 UI 控件, D 层测跨 3 Tab 端到端协作
-(LoginDialog → MainWindow → EmployeesTab/CheckInTab/RecordsTab).
+C 层测单一 UI 控件，D 层测管理员登录、管理后台与独立签到窗口的端到端协作。
 
 策略:
 - QT_QPA_PLATFORM=offscreen (C 层同款), 不依赖真实显示器.
@@ -13,8 +12,7 @@
 - 严格不修改 conftest.py (G-06 红线)
 - 复用 conftest 5 个 fixture: _db_session / _patch_argv / _per_test_reset /
   sample_schedule / face_image (sample_employees 本层未直接用, D07~D10 自己造数据)
-- 文件内自管 4 个 fixture: _offscreen_platform / app / default_admin /
-  logged_in_main_window + 1 个 Mock 类: _FakeCaptureOk
+- 文件内自管 Qt、默认管理员、签到窗口和管理后台 fixture，以及 _FakeCaptureOk
 - 复用 attendance_db, 每 TC 前 _per_test_reset 清表
 """
 
@@ -58,14 +56,22 @@ def default_admin():
 
 
 @pytest.fixture
-def logged_in_main_window(app, default_admin):
-    """D06~D11 使用: 直接创建 MainWindow, 绕过 LoginDialog.
+def kiosk(app, qtbot):
+    from attendance.ui_kiosk import CheckInWindow
 
-    原因: LoginDialog 已在 C-01~C-04 测过 (TC-ATT-C01~C04), D 层不重复。
-    D05 专门测 LoginDialog → MainWindow 全流程, 不用本 fixture.
-    """
+    window = CheckInWindow()
+    qtbot.addWidget(window)
+    return window
+
+
+@pytest.fixture
+def logged_in_main_window(kiosk, default_admin, qtbot):
+    """直接创建管理后台，借用独立签到窗口持有的 CheckInTab。"""
     from attendance.ui_main import MainWindow
-    return MainWindow(default_admin)
+
+    window = MainWindow(default_admin, kiosk.checkin_tab)
+    qtbot.addWidget(window)
+    return window
 
 
 class _FakeCaptureOk:
@@ -90,8 +96,8 @@ class _FakeCaptureOk:
 # ============================================================
 
 
-def test_TC_ATT_D05_e2e_login_to_main(app, default_admin):
-    """D05: LoginDialog 输入正确账号 → accept → MainWindow 实例化 → 3 tab + statusBar.
+def test_TC_ATT_D05_e2e_login_to_main(kiosk, default_admin, qtbot):
+    """D05: LoginDialog 输入正确账号 → accept → MainWindow 实例化 → 4 个管理页 + statusBar.
 
     与 C-02 (login accept) + C-05 (main window) 的区别: C 层只测单一组件 accept,
     本 TC 测"login.admin 传递到 MainWindow._admin + statusBar 渲染"端到端链。
@@ -108,13 +114,13 @@ def test_TC_ATT_D05_e2e_login_to_main(app, default_admin):
     assert dlg.admin.username == "admin"
 
     # login.admin → MainWindow._admin → statusBar 文本
-    main_window = MainWindow(dlg.admin)
-    assert main_window.windowTitle() == "签到/签退人员管理系统 v1.0.0"
+    main_window = MainWindow(dlg.admin, kiosk.checkin_tab)
+    qtbot.addWidget(main_window)
+    assert main_window.windowTitle() == MainWindow.APP_TITLE == "考勤管理后台"
     assert main_window.tabs.count() == 4
-    assert main_window.tabs.tabText(0) == "实时签到"
-    assert main_window.tabs.tabText(1) == "人员管理"
-    assert main_window.tabs.tabText(2) == "打卡记录"
-    assert main_window.tabs.tabText(3) == "管理员管理"  # T-603 增量
+    assert [main_window.tabs.tabText(i) for i in range(4)] == [
+        "人员管理", "打卡记录", "管理员管理", "班次管理",
+    ]
     assert "admin" in main_window.statusBar().currentMessage()
     assert "首次登录后请尽快修改密码" in main_window.statusBar().currentMessage()
 
@@ -127,24 +133,22 @@ def test_TC_ATT_D05_e2e_login_to_main(app, default_admin):
 def test_TC_ATT_D06_e2e_main_window_tabs(logged_in_main_window):
     """D06: MainWindow 4 tab 索引/标题/实例对应 + 切换 + 退出 action 存在."""
     from attendance.ui_admins import AdminsTab
-    from attendance.ui_checkin import CheckInTab
     from attendance.ui_employees import EmployeesTab
     from attendance.ui_records import RecordsTab
+    from attendance.ui_schedules import SchedulesTab
 
     main_window = logged_in_main_window
 
-    # 4 个 tab 实例类型正确 (T-603 增量 1 个 AdminsTab)
     assert main_window.tabs.count() == 4
-    assert isinstance(main_window.tabs.widget(0), CheckInTab)
-    assert isinstance(main_window.tabs.widget(1), EmployeesTab)
-    assert isinstance(main_window.tabs.widget(2), RecordsTab)
-    assert isinstance(main_window.tabs.widget(3), AdminsTab)
+    assert isinstance(main_window.tabs.widget(0), EmployeesTab)
+    assert isinstance(main_window.tabs.widget(1), RecordsTab)
+    assert isinstance(main_window.tabs.widget(2), AdminsTab)
+    assert isinstance(main_window.tabs.widget(3), SchedulesTab)
 
-    # tab 实例属性一致 (MainWindow 在 _build_ui 中直接持有)
-    assert main_window.tabs.widget(0) is main_window.checkin_tab
-    assert main_window.tabs.widget(1) is main_window.employees_tab
-    assert main_window.tabs.widget(2) is main_window.records_tab
-    assert main_window.tabs.widget(3) is main_window.admins_tab
+    assert main_window.tabs.widget(0) is main_window.employees_tab
+    assert main_window.tabs.widget(1) is main_window.records_tab
+    assert main_window.tabs.widget(2) is main_window.admins_tab
+    assert main_window.tabs.widget(3) is main_window.schedules_tab
 
     # 切换 tab
     for i in range(4):
@@ -152,7 +156,7 @@ def test_TC_ATT_D06_e2e_main_window_tabs(logged_in_main_window):
         assert main_window.tabs.currentIndex() == i
 
     # 退出 action 存在
-    assert main_window.action_exit.text() == "退出"
+    assert main_window.action_exit.text() == "退出管理"
     assert main_window.action_exit.shortcut().toString() == "Ctrl+Q"
 
 
@@ -162,11 +166,11 @@ def test_TC_ATT_D06_e2e_main_window_tabs(logged_in_main_window):
 
 
 def test_TC_ATT_D07_e2e_employees_add_checkin_records(
-    app, monkeypatch, sample_schedule, face_image, logged_in_main_window
+    monkeypatch, sample_schedule, face_image, logged_in_main_window, kiosk
 ):
-    """D07: 端到端: EmployeesTab 新增员工 → CheckInTab 识别打卡 → RecordsTab 显示.
+    """D07: 后台新增员工 → 独立签到窗口识别打卡 → 后台显示记录。
 
-    跨 3 Tab + 5 mock 协作的最复杂 e2e TC:
+    跨两个窗口的端到端流程：
     - cv2.VideoCapture → _FakeCaptureOk (避免依赖真实相机)
     - recognition.recognition → 返 1 个 box
     - get_name.rec → 返 "100001" (face_datasets/100001.jpg 的 basename, 无扩展名,
@@ -249,17 +253,16 @@ def test_TC_ATT_D07_e2e_employees_add_checkin_records(
     monkeypatch.setattr(CheckConfirmDialog, "exec_", fake_confirm_exec)
 
     # ----- 触发端到端流程 -----
-    # Step 1: 切到 EmployeesTab → 点新增
-    main_window.tabs.setCurrentIndex(1)
+    # Step 1: 后台切到人员管理 → 点新增
+    main_window.tabs.setCurrentIndex(0)
     main_window.employees_tab.btn_add.click()
 
-    # Step 2: 切到 CheckInTab → 触发识别
-    main_window.tabs.setCurrentIndex(0)
+    # Step 2: 在独立签到窗口触发识别
     zero_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-    main_window.checkin_tab._do_recognition(zero_frame)
+    kiosk.checkin_tab._do_recognition(zero_frame)
 
-    # Step 3: 切到 RecordsTab → 刷新
-    main_window.tabs.setCurrentIndex(2)
+    # Step 3: 后台切到打卡记录 → 刷新
+    main_window.tabs.setCurrentIndex(1)
     main_window.records_tab._refresh_table()
 
     # ----- 断言 -----
@@ -294,16 +297,11 @@ def test_TC_ATT_D07_e2e_employees_add_checkin_records(
 # ============================================================
 
 
-def test_TC_ATT_D08_e2e_checkin_camera_open_close(app, monkeypatch, logged_in_main_window):
-    """D08: 打开/关闭相机按钮 → _camera/_timer 状态正确切换 + 状态栏消息推送.
-
-    与 C-12 的区别: C-12 直接实例化 CheckInTab, 本 TC 走 MainWindow.checkin_tab,
-    验证"通过 MainWindow 入口的 checkin_tab 行为一致 + 状态栏消息有传给父窗口"。
-    """
+def test_TC_ATT_D08_e2e_checkin_camera_open_close(monkeypatch, kiosk):
+    """D08: 签到窗口打开/关闭相机，校验相机、定时器和状态栏。"""
     import cv2
 
-    main_window = logged_in_main_window
-    tab = main_window.checkin_tab
+    tab = kiosk.checkin_tab
     monkeypatch.setattr(cv2, "VideoCapture", _FakeCaptureOk)
 
     # 初始: 相机未打开
@@ -321,8 +319,7 @@ def test_TC_ATT_D08_e2e_checkin_camera_open_close(app, monkeypatch, logged_in_ma
     assert tab._timer.isActive()
     assert tab.btn_open.text() == "关闭相机"
     assert tab.btn_start.isEnabled() is True
-    # _emit_status 把"相机已打开"推给 MainWindow.statusBar
-    assert "相机已打开" in main_window.statusBar().currentMessage()
+    assert "相机已打开" in kiosk.statusBar().currentMessage()
 
     # 关闭
     tab.btn_open.click()
@@ -331,7 +328,7 @@ def test_TC_ATT_D08_e2e_checkin_camera_open_close(app, monkeypatch, logged_in_ma
     assert tab.btn_open.text() == "打开相机"
     assert tab.btn_start.isEnabled() is False
     assert tab.btn_stop.isEnabled() is False
-    assert "相机已关闭" in main_window.statusBar().currentMessage()
+    assert "相机已关闭" in kiosk.statusBar().currentMessage()
 
 
 # ============================================================
@@ -340,7 +337,7 @@ def test_TC_ATT_D08_e2e_checkin_camera_open_close(app, monkeypatch, logged_in_ma
 
 
 def test_TC_ATT_D09_e2e_checkin_recognition_unknown(
-    app, monkeypatch, logged_in_main_window
+    monkeypatch, kiosk
 ):
     """D09: get_name.rec 返 'unknown' → 弹 QMessageBox.warning '未识别', 不打卡.
 
@@ -352,7 +349,7 @@ def test_TC_ATT_D09_e2e_checkin_recognition_unknown(
     import recognition
     from PyQt5 import QtWidgets
 
-    main_window = logged_in_main_window
+    tab = kiosk.checkin_tab
 
     # 捕获 QMessageBox.warning
     captured: dict = {}
@@ -375,7 +372,7 @@ def test_TC_ATT_D09_e2e_checkin_recognition_unknown(
 
     # 触发识别
     zero_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-    main_window.checkin_tab._do_recognition(zero_frame)
+    tab._do_recognition(zero_frame)
 
     # 断言: 弹 warning + 无 CheckRecord
     assert captured["title"] == "未识别"
@@ -385,11 +382,10 @@ def test_TC_ATT_D09_e2e_checkin_recognition_unknown(
 
     # P1 缺口: 任务 1 修复后, 未识别分支必须停识别 + 状态栏反馈,
     # 防止 L255/L270/L278 弹窗后 30ms timer 循环再弹 (决策 005 L-005 关联).
-    tab = main_window.checkin_tab
     assert tab.flag_recognition is False, "未识别后必须停止识别"
     assert tab.btn_start.isEnabled() is True, "停止识别后开始按钮应重新启用"
     assert tab.btn_stop.isEnabled() is False, "停止识别后停止按钮应禁用"
-    assert "未识别" in main_window.statusBar().currentMessage(), \
+    assert "未识别" in kiosk.statusBar().currentMessage(), \
         "状态栏应反馈未识别 + 提示"
 
 
@@ -399,7 +395,7 @@ def test_TC_ATT_D09_e2e_checkin_recognition_unknown(
 
 
 def test_TC_ATT_D10_e2e_checkin_face_not_in_db(
-    app, monkeypatch, logged_in_main_window
+    monkeypatch, kiosk
 ):
     """D10: get_name.rec 返 '200099' (face_datasets 有但 db 无此 employee) → warning, 不打卡.
 
@@ -411,7 +407,7 @@ def test_TC_ATT_D10_e2e_checkin_face_not_in_db(
     import recognition
     from PyQt5 import QtWidgets
 
-    main_window = logged_in_main_window
+    tab = kiosk.checkin_tab
 
     captured: dict = {}
 
@@ -432,7 +428,7 @@ def test_TC_ATT_D10_e2e_checkin_face_not_in_db(
     )
 
     zero_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-    main_window.checkin_tab._do_recognition(zero_frame)
+    tab._do_recognition(zero_frame)
 
     # 断言: 弹 warning + 工号在文本中 + 无 CheckRecord
     assert captured["title"] == "未识别"
@@ -443,48 +439,51 @@ def test_TC_ATT_D10_e2e_checkin_face_not_in_db(
 
     # P1 缺口: 任务 1 修复后, 未识别分支必须停识别 + 状态栏反馈,
     # 防止 L255/L270/L278 弹窗后 30ms timer 循环再弹 (决策 005 L-005 关联).
-    tab = main_window.checkin_tab
     assert tab.flag_recognition is False, "未识别后必须停止识别"
     assert tab.btn_start.isEnabled() is True, "停止识别后开始按钮应重新启用"
     assert tab.btn_stop.isEnabled() is False, "停止识别后停止按钮应禁用"
-    assert "未识别" in main_window.statusBar().currentMessage(), \
+    assert "未识别" in kiosk.statusBar().currentMessage(), \
         "状态栏应反馈未识别 + 提示"
 
 
 # ============================================================
-# D11: 关闭主窗口释放相机
+# D11: 管理后台退出不释放相机，签到窗口关闭才释放
 # ============================================================
 
 
-def test_TC_ATT_D11_e2e_main_close_releases_camera(
-    app, monkeypatch, logged_in_main_window
+def test_TC_ATT_D11_e2e_kiosk_close_releases_camera(
+    monkeypatch, kiosk, logged_in_main_window
 ):
-    """D11: MainWindow.closeEvent → CheckInTab._close_camera 释放 cv2.VideoCapture.
-
-    验证 ui_main.py L82-87 的 closeEvent 契约: 主窗口关闭时, CheckInTab 持有的
-    cv2.VideoCapture 句柄必须释放, 否则下次启动会报"Camera already opened"。
-
-    与 C-12 的区别: C-12 测 btn_open 切换, 本 TC 测 closeEvent 副作用.
-    """
+    """D11: 退出管理不影响签到窗口；关闭签到窗口释放相机和定时器。"""
     import cv2
     from PyQt5 import QtGui
 
     main_window = logged_in_main_window
+    tab = kiosk.checkin_tab
     monkeypatch.setattr(cv2, "VideoCapture", _FakeCaptureOk)
 
-    # 打开相机
-    main_window.checkin_tab.btn_open.click()
-    assert main_window.checkin_tab._camera is not None
-    assert main_window.checkin_tab._timer is not None
+    tab.btn_open.click()
+    camera = tab._camera
+    assert camera is not None and camera.isOpened()
+    assert tab._timer is not None and tab._timer.isActive()
 
-    # 触发 closeEvent (offscreen 平台下 main_window.close() 不触发 closeEvent,
-    # 同 C-04 踩坑, 这里直接调 closeEvent 测契约)
-    main_window.closeEvent(QtGui.QCloseEvent())
+    kiosk.show()
+    main_window.show()
+    main_window.action_exit.trigger()
+    assert not main_window.isVisible()
+    assert kiosk.isVisible()
+    assert tab.window() is kiosk
+    assert tab._camera is camera and camera.isOpened()
+    assert tab._timer is not None and tab._timer.isActive()
 
-    # 断言: camera 与 timer 都已释放
-    assert main_window.checkin_tab._camera is None
-    assert main_window.checkin_tab._timer is None
-    assert main_window.checkin_tab.btn_open.text() == "打开相机"
+    # 直接触发 closeEvent，避免依赖 offscreen 下未显示窗口的 close 行为。
+    event = QtGui.QCloseEvent()
+    kiosk.closeEvent(event)
+    assert event.isAccepted()
+    assert tab._camera is None
+    assert not camera.isOpened()
+    assert tab._timer is None
+    assert tab.btn_open.text() == "打开相机"
 
 
 # ============================================================
@@ -493,7 +492,7 @@ def test_TC_ATT_D11_e2e_main_close_releases_camera(
 
 
 def test_TC_ATT_E11_e2e_change_password_full_flow(
-    app, default_admin, monkeypatch, qtbot,
+    kiosk, default_admin, monkeypatch, qtbot,
 ):
     """E11: 端到端改密完整流程 (SPEC-002 §7 TC-ATT-E11 + REQ-E-D-01).
 
@@ -519,7 +518,7 @@ def test_TC_ATT_E11_e2e_change_password_full_flow(
     from attendance.utils import AuthFailed
     from PyQt5 import QtWidgets
 
-    main_window = MainWindow(default_admin)
+    main_window = MainWindow(default_admin, kiosk.checkin_tab)
     qtbot.addWidget(main_window)
 
     # 准备 mock ChangePasswordDialog 实例 (沿用 test_ui_change_password.py E-01 模式)

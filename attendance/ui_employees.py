@@ -13,8 +13,10 @@ from typing import List, Optional
 from PyQt5 import QtCore, QtWidgets
 
 from attendance.models import Employee
+from attendance.face_template import FacePose, POSE_PROMPTS, assess_registration_quality
 from attendance.services import EmployeeService, ScheduleService
 from attendance.ui_utils import show_error
+from attendance.ui_theme import card, configure_table, label, page_header, prepare_dialog
 from attendance.utils import (
     EmployeeHasRecords,
     EmployeeIdExists,
@@ -53,6 +55,12 @@ class EmployeesTab(QtWidgets.QWidget):
 
     def _build_ui(self) -> None:
         layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+        self.employee_summary = label('共 0 人', 'badge')
+        header = page_header('人员管理', '维护员工资料、班次和本机加密人脸模板。')
+        header.layout().addWidget(self.employee_summary)
+        layout.addWidget(header)
 
         # 工具栏
         toolbar = QtWidgets.QHBoxLayout()
@@ -60,15 +68,24 @@ class EmployeesTab(QtWidgets.QWidget):
         self.btn_edit = QtWidgets.QPushButton("编辑")
         self.btn_delete = QtWidgets.QPushButton("删除")
         self.btn_refresh = QtWidgets.QPushButton("刷新")
+        self.btn_bind_schedules = QtWidgets.QPushButton("绑定班次")
         self.search_edit = QtWidgets.QLineEdit()
         self.search_edit.setPlaceholderText("搜索工号/姓名")
         self.search_edit.setClearButtonEnabled(True)
+        self.btn_add.setObjectName('primary')
+        self.btn_delete.setObjectName('danger')
+        toolbar.addWidget(label('快速搜索'))
         toolbar.addWidget(self.btn_add)
         toolbar.addWidget(self.btn_edit)
         toolbar.addWidget(self.btn_delete)
         toolbar.addWidget(self.btn_refresh)
+        toolbar.addWidget(self.btn_bind_schedules)
         toolbar.addWidget(self.search_edit)
-        layout.addLayout(toolbar)
+        toolbar_card = card()
+        toolbar_card_layout = QtWidgets.QHBoxLayout(toolbar_card)
+        toolbar_card_layout.setContentsMargins(16, 12, 16, 12)
+        toolbar_card_layout.addLayout(toolbar)
+        layout.addWidget(toolbar_card)
 
         # 表格
         self.table = QtWidgets.QTableWidget()
@@ -84,6 +101,7 @@ class EmployeesTab(QtWidgets.QWidget):
             QtWidgets.QAbstractItemView.NoEditTriggers
         )
         self.table.verticalHeader().setVisible(False)
+        configure_table(self.table)
         layout.addWidget(self.table)
 
     def _wire_signals(self) -> None:
@@ -93,6 +111,7 @@ class EmployeesTab(QtWidgets.QWidget):
         self.btn_refresh.clicked.connect(
             lambda: self._refresh_table()
         )
+        self.btn_bind_schedules.clicked.connect(self._on_bind_schedules)
         self.search_edit.textChanged.connect(self._on_search)
 
     # ----------------------------------------------------------
@@ -119,6 +138,7 @@ class EmployeesTab(QtWidgets.QWidget):
                 )
                 return
         self.table.setRowCount(len(employees))
+        self.employee_summary.setText(f'共 {len(employees)} 人')
         for r, emp in enumerate(employees):
             self.table.setItem(
                 r, 0,
@@ -151,7 +171,9 @@ class EmployeesTab(QtWidgets.QWidget):
     # ----------------------------------------------------------
 
     def _on_add(self) -> None:
-        dlg = EmployeeDialog(parent=self, mode="add")
+        # M2: 新增员工统一走三姿态加密登记流程。
+        from attendance.ui_enrollment import EnrollmentDialog
+        dlg = EnrollmentDialog(parent=self)
         if dlg.exec_() == QtWidgets.QDialog.Accepted:
             self._refresh_table()
 
@@ -165,17 +187,20 @@ class EmployeesTab(QtWidgets.QWidget):
             return
         try:
             emp = EmployeeService.get(eid)
+            dlg = EmployeeDialog(parent=self, mode="edit", employee=emp)
+            if dlg.exec_() == QtWidgets.QDialog.Accepted:
+                self._refresh_table()
         except EmployeeNotFound as e:
             show_error(
                 self, "EMPLOYEE_NOT_FOUND",
                 f"{e} (错误码: EMPLOYEE_NOT_FOUND)",
             )
-            return
-        dlg = EmployeeDialog(
-            parent=self, mode="edit", employee=emp,
-        )
-        if dlg.exec_() == QtWidgets.QDialog.Accepted:
-            self._refresh_table()
+        except Exception as e:
+            # 编辑窗口构造/执行失败必须可见，避免用户误以为按钮无效。
+            show_error(
+                self, "EMPLOYEE_EDIT_FAILED",
+                f"打开编辑窗口失败: {e} (错误码: EMPLOYEE_EDIT_FAILED)",
+            )
 
     def _on_delete(self) -> None:
         eid = self._selected_employee_id()
@@ -194,12 +219,6 @@ class EmployeesTab(QtWidgets.QWidget):
             return
         try:
             EmployeeService.delete(eid)
-        except EmployeeHasRecords as e:
-            show_error(
-                self, "EMPLOYEE_HAS_RECORDS",
-                f"{e} (错误码: EMPLOYEE_HAS_RECORDS)",
-            )
-            return
         except EmployeeNotFound as e:
             show_error(
                 self, "EMPLOYEE_NOT_FOUND",
@@ -207,6 +226,15 @@ class EmployeesTab(QtWidgets.QWidget):
             )
             return
         self._refresh_table()
+
+    def _on_bind_schedules(self) -> None:
+        eid = self._selected_employee_id()
+        if not eid:
+            show_error(self, "EMPLOYEE_NOT_FOUND", "请先选中员工 (错误码: EMPLOYEE_NOT_FOUND)")
+            return
+        from attendance.ui_schedules import EmployeeScheduleDialog
+        if EmployeeScheduleDialog(eid, self).exec_() == QtWidgets.QDialog.Accepted:
+            self._refresh_table()
 
     def _on_search(self, text: str) -> None:
         if not text:
@@ -240,7 +268,6 @@ class EmployeeDialog(QtWidgets.QDialog):
     # ----------------------------------------------------------
 
     def _build_ui(self) -> None:
-        self.setFixedSize(440, 420)
 
         # 输入控件
         self.employee_id_edit = QtWidgets.QLineEdit()
@@ -248,6 +275,10 @@ class EmployeeDialog(QtWidgets.QDialog):
         self.employee_id_edit.setPlaceholderText("6 位数字")
 
         self.name_edit = QtWidgets.QLineEdit()
+        self.privacy_check = QtWidgets.QCheckBox(
+            "我已知悉人脸数据仅用于本地考勤，并同意采集和加密保存"
+        )
+        self.privacy_check.setChecked(False)
 
         self.department_edit = QtWidgets.QLineEdit()
         self.department_edit.setPlaceholderText("可空")
@@ -305,6 +336,7 @@ class EmployeeDialog(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
         layout.addLayout(form)
         layout.addLayout(btn_layout)
+        prepare_dialog(self, '人员资料', '完善人员信息，带 * 的项目为必填项。', self.btn_save, 640)
 
     def _wire_signals(self) -> None:
         self.btn_save.clicked.connect(self._on_save)
@@ -370,10 +402,14 @@ class EmployeeDialog(QtWidgets.QDialog):
         self.phone_edit.setText(emp.phone or "")
         self.email_edit.setText(emp.email or "")
         self.face_path_edit.setText(emp.face_image_path or "")
+        # 编辑允许员工暂时没有班次；不能因为 None 访问 .id 导致对话框无声失败。
+        schedule_id = emp.schedule.id if emp.schedule is not None else None
         for i in range(self.schedule_combo.count()):
-            if self.schedule_combo.itemData(i) == emp.schedule.id:
+            if schedule_id is not None and self.schedule_combo.itemData(i) == schedule_id:
                 self.schedule_combo.setCurrentIndex(i)
                 break
+        if schedule_id is None:
+            self.schedule_combo.setCurrentIndex(-1)
         self.is_active_check.setChecked(bool(emp.is_active))
 
     def _on_save(self) -> None:
@@ -384,23 +420,26 @@ class EmployeeDialog(QtWidgets.QDialog):
         # 的根因被堵死.
         face_path = self._normalize_face_path(
             self.face_path_edit.text().strip()
-        )
+        ) if self._mode == "add" or self.face_path_edit.text().strip() else None
         schedule_id_raw = self.schedule_combo.currentData()
-        if not eid or not name or not face_path or schedule_id_raw is None:
+        if not eid or not name or (self._mode == "add" and (not face_path or schedule_id_raw is None)):
             show_error(
                 self, "EMPLOYEE_ID_INVALID",
-                "工号 / 姓名 / 人脸照片路径 / 班次 不能为空 "
+                "工号 / 姓名不能为空；新增员工还必须提供人脸照片路径和班次 "
                 "(错误码: EMPLOYEE_ID_INVALID)",
             )
             return
-        try:
-            schedule_id = int(schedule_id_raw)
-        except (TypeError, ValueError):
-            show_error(
-                self, "SCHEDULE_NOT_FOUND",
-                f"班次 id 非法: {schedule_id_raw!r} (错误码: SCHEDULE_NOT_FOUND)",
-            )
-            return
+        if schedule_id_raw is None and self._mode == "edit":
+            schedule_id = None
+        else:
+            try:
+                schedule_id = int(schedule_id_raw)
+            except (TypeError, ValueError):
+                show_error(
+                    self, "SCHEDULE_NOT_FOUND",
+                    f"班次 id 非法: {schedule_id_raw!r} (错误码: SCHEDULE_NOT_FOUND)",
+                )
+                return
 
         # 空字符串统一转 None (Service 接受 Optional)
         def _opt(s: str) -> Optional[str]:

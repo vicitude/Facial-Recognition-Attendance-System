@@ -64,14 +64,16 @@ def app():
 
 
 @pytest.fixture
-def make_main_window(app, monkeypatch):
-    """工厂函数: 返 (admin) -> MainWindow 实例. 内部 import MainWindow
-    避免 collection 阶段触发 recognition.py (L-002 教训).
-    """
+def make_main_window(app, qtbot):
+    """构造后台并注入签到窗口持有的 CheckInTab；延迟导入避免解析 pytest 参数。"""
+    from attendance.ui_kiosk import CheckInWindow
     from attendance.ui_main import MainWindow
 
+    kiosk = CheckInWindow()
+    qtbot.addWidget(kiosk)
+
     def _make(admin):
-        return MainWindow(admin)
+        return MainWindow(admin, kiosk.checkin_tab)
     return _make
 
 

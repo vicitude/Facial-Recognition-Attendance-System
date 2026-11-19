@@ -63,20 +63,33 @@ def app():
 
 
 @pytest.fixture
-def make_main_window(app, monkeypatch):
-    """工厂函数: 返 (admin) -> MainWindow 实例. 内部 import MainWindow
-    避免 collection 阶段触发 recognition.py (L-002 教训).
-    """
+def make_main_window(app, qtbot):
+    """构造后台并注入签到窗口持有的 CheckInTab；延迟导入避免解析 pytest 参数。"""
+    from attendance.ui_kiosk import CheckInWindow
     from attendance.ui_main import MainWindow
 
+    kiosk = CheckInWindow()
+    qtbot.addWidget(kiosk)
+
     def _make(admin):
-        return MainWindow(admin)
+        return MainWindow(admin, kiosk.checkin_tab)
     return _make
 
 
 # ============================================================
 # Helper: mock QDialog.exec_ 走真实槽函数 (L-005 教训)
 # ============================================================
+
+
+def test_color_ratio_control_defaults_to_85_percent(qtbot, app, monkeypatch):
+    tab = AdminsTab.__new__(AdminsTab)
+    QtWidgets.QWidget.__init__(tab)
+    tab._current_admin = None
+    tab._build_ui()
+    assert tab.color_ratio_spin.value() == 85
+    assert tab.color_ratio_spin.minimum() == 50
+    assert tab.color_ratio_spin.maximum() == 100
+    tab.deleteLater()
 
 
 def _mock_admin_create_exec(monkeypatch, dialog):
@@ -114,7 +127,7 @@ def _mock_question_yes(monkeypatch):
 
 
 # ============================================================
-# E-06: 切到 Tab 3 + 表格显示 N 行 + 自己行删除按钮禁用
+# E-06: 切到索引 2 的页面 + 表格显示 N 行 + 自己行删除按钮禁用
 # ============================================================
 
 
@@ -131,7 +144,7 @@ def test_TC_ATT_E06_admins_tab_shows_list(
     main = make_main_window(admin)
     qtbot.addWidget(main)
 
-    # 切到 Tab 3 (管理员管理)
+    # 切到索引 2 的页面 (管理员管理)
     main.tabs.setCurrentWidget(main.admins_tab)
     admins_tab = main.admins_tab
 

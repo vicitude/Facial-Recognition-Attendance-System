@@ -1,23 +1,20 @@
-"""签到/签退人员管理系统 - 登录对话框 (SPEC-001-C §3 LoginDialog).
+"""管理员设置入口的账号密码登录对话框。"""
 
-T-301: 启动后弹出, 校验管理员账号, 成功 self.accept() 进入主窗口.
-"""
-
-import sys
 from typing import Optional
 
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5 import QtWidgets
 
 from attendance.models import Admin
 from attendance.services import AdminService
 from attendance.ui_utils import show_error
+from attendance.ui_theme import StarBanner, prepare_dialog
 from attendance.utils import AuthFailed
 
 
 class LoginDialog(QtWidgets.QDialog):
     """登录对话框。"""
 
-    APP_TITLE: str = "签到系统 v1.0.0"
+    APP_TITLE: str = "管理员登录"
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
@@ -31,14 +28,6 @@ class LoginDialog(QtWidgets.QDialog):
 
     def _build_ui(self) -> None:
         self.setWindowTitle(self.APP_TITLE)
-        self.setFixedSize(360, 200)
-
-        title_label = QtWidgets.QLabel("签到系统 v1.0.0")
-        title_font = QtGui.QFont()
-        title_font.setPointSize(14)
-        title_font.setBold(True)
-        title_label.setFont(title_font)
-        title_label.setAlignment(QtCore.Qt.AlignCenter)
 
         self.username_edit = QtWidgets.QLineEdit()
         self.username_edit.setPlaceholderText("用户名")
@@ -53,13 +42,23 @@ class LoginDialog(QtWidgets.QDialog):
         form.addRow("用户名", self.username_edit)
         form.addRow("密码", self.password_edit)
 
+        self.cancel_button = QtWidgets.QPushButton("取消")
+        self.cancel_button.setAutoDefault(False)
+        buttons = QtWidgets.QHBoxLayout()
+        buttons.addStretch(1)
+        buttons.addWidget(self.cancel_button)
+        buttons.addWidget(self.login_button)
+
         layout = QtWidgets.QVBoxLayout(self)
-        layout.addWidget(title_label)
+        layout.addWidget(StarBanner())
         layout.addLayout(form)
-        layout.addWidget(self.login_button)
+        layout.addLayout(buttons)
+        prepare_dialog(self, '管理员登录', '登录后进入考勤管理后台。', self.login_button, 500)
+        self.login_button.setDefault(True)
 
     def _wire_signals(self) -> None:
         self.login_button.clicked.connect(self._on_login_clicked)
+        self.cancel_button.clicked.connect(self.reject)
 
     # ----------------------------------------------------------
     # 槽函数
@@ -85,11 +84,3 @@ class LoginDialog(QtWidgets.QDialog):
             )
             return
         self.accept()
-
-    # ----------------------------------------------------------
-    # 窗口事件
-    # ----------------------------------------------------------
-
-    def closeEvent(self, event: QtGui.QCloseEvent) -> None:
-        """关闭登录窗口 → 整个进程退出。"""
-        sys.exit(0)

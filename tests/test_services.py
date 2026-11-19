@@ -193,7 +193,7 @@ def test_TC_ATT_B10_employee_delete_no_records(face_image, sample_schedule):
 
 
 def test_TC_ATT_B11_employee_delete_has_records(face_image, sample_schedule):
-    """B-11: 删除有打卡记录的员工。"""
+    """B-11: 二次确认后删除有打卡记录的员工及其关联记录。"""
     EmployeeService.create(
         employee_id="100001",
         name="张三",
@@ -204,10 +204,9 @@ def test_TC_ATT_B11_employee_delete_has_records(face_image, sample_schedule):
         face_image_path=face_image,
         schedule_id=sample_schedule.id,
     )
-    CheckService.create_record("100001", "check_in")
-    with pytest.raises(EmployeeHasRecords):
-        EmployeeService.delete("100001")
-    assert Employee.select().where(
+    CheckService.create_record("100001", "check_in", schedule_id=sample_schedule.id)
+    EmployeeService.delete("100001")
+    assert not Employee.select().where(
         Employee.employee_id == "100001"
     ).exists()
 
@@ -229,7 +228,7 @@ def test_TC_ATT_B12_check_create_record_ok(face_image, sample_schedule):
         face_image_path=face_image,
         schedule_id=sample_schedule.id,
     )
-    rec = CheckService.create_record("100001", "check_in")
+    rec = CheckService.create_record("100001", "check_in", schedule_id=sample_schedule.id)
     assert rec.employee_id == "100001"
     assert rec.check_type == "check_in"
     assert rec.check_date == date.today()

@@ -1,0 +1,26 @@
+# Windows x64 / CPython 3.9.25. Install the matching torch/torchvision pair first (README).
+# Do not add another OpenCV wheel: MediaPipe uses opencv-contrib-python, which supplies cv2.
+numpy==1.26.4
+opencv-contrib-python==4.11.0.86
+Pillow==11.3.0
+matplotlib==3.9.4
+scipy==1.13.1
+PyYAML==6.0.3
+requests==2.32.5
+psutil==7.2.2
+tqdm==4.68.4
+PyQt5==5.15.11
+PyQt5-Qt5==5.15.2
+PyQt5-sip==12.17.1
+peewee==3.17.1
+PyMySQL==1.1.0
+cryptography==50.0.0
+pywin32==311; sys_platform == "win32"
+winrt-runtime==3.2.1; sys_platform == "win32"
+winrt-Windows.Foundation==3.2.1; sys_platform == "win32"
+winrt-Windows.Devices.Geolocation==3.2.1; sys_platform == "win32"
+mediapipe==0.10.21
+jax==0.4.30
+jaxlib==0.4.30
+protobuf==4.25.9
+sounddevice==0.5.6

@@ -16,6 +16,7 @@ from PyQt5 import QtCore, QtWidgets
 
 from attendance.models import Admin
 from attendance.services import AdminService
+from attendance.ui_theme import prepare_dialog
 from attendance.utils import AuthFailed, PasswordTooShort
 
 
@@ -39,7 +40,6 @@ class ChangePasswordDialog(QtWidgets.QDialog):
     def _build_ui(self) -> None:
         self.setWindowTitle("修改密码")
         self.setModal(True)
-        self.setFixedSize(360, 240)
 
         title_label = QtWidgets.QLabel("修改密码")
         title_font = self.font()
@@ -74,9 +74,10 @@ class ChangePasswordDialog(QtWidgets.QDialog):
         button_box.addWidget(self.btn_cancel)
 
         layout = QtWidgets.QVBoxLayout(self)
-        layout.addWidget(title_label)
+        title_label.deleteLater()
         layout.addLayout(form)
         layout.addLayout(button_box)
+        prepare_dialog(self, '修改密码', '更新当前管理员的登录凭据。', self.btn_confirm)
 
     def _wire_signals(self) -> None:
         self.btn_confirm.clicked.connect(self._on_confirm_clicked)

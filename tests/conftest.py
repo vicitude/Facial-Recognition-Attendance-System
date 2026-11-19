@@ -1,7 +1,7 @@
 """SPEC-001-B 测试 fixture.
 
-策略 (与用户对齐):
-- 复用 attendance_db (config 中已配置的库),而非另建 attendance_test_db
+策略 (S0 安全隔离):
+- 必须显式提供测试专用配置，只允许本机 attendance_test_* 数据库
 - 每 TC 前清 CheckRecord/Employee/Admin,保留 Schedule (init_db seed 的班次)
 - face_image fixture: 用 tmp_path 写真实 .jpg 文件 + monkeypatch 放宽
   FACE_IMAGE_PATH_PATTERN (function scope,TC 结束自动还原,不动业务代码)
@@ -18,6 +18,7 @@ from attendance.config import ConfigService
 from attendance.db import close_db, init_db
 from attendance.models import Admin, CheckRecord, Employee, Schedule
 from attendance.services import EmployeeService
+from attendance.test_safety import require_test_config_path, validate_test_database
 
 
 # ============================================================
@@ -27,11 +28,16 @@ from attendance.services import EmployeeService
 
 @pytest.fixture(scope="session", autouse=True)
 def _db_session():
-    ConfigService.ensure_exists()
-    config = ConfigService.load()
-    init_db(config)
-    yield
-    close_db()
+    original_path = ConfigService.INI_PATH
+    try:
+        ConfigService.INI_PATH = require_test_config_path()
+        config = ConfigService.load()
+        validate_test_database(config)
+        init_db(config)
+        yield
+    finally:
+        close_db()
+        ConfigService.INI_PATH = original_path
 
 
 @pytest.fixture(autouse=True)
@@ -63,11 +69,21 @@ def _per_test_reset():
     if Schedule.select().count() == 0:
         Schedule.create(
             name="测试班次",
-            work_start=datetime.time(8, 0, 0),
-            work_end=datetime.time(17, 0, 0),
+            work_start=datetime.time(0, 1, 0),
+            work_end=datetime.time(23, 0, 0),
+            check_in_start=datetime.time(0, 0, 0),
+            late_end=datetime.time(22, 0, 0),
+            check_out_end=datetime.time(23, 59, 0),
+            duplicate_policy="reject",
+            is_active=True,
             late_threshold_min=15,
             early_leave_threshold_min=15,
         )
+    Schedule.update(
+        work_start=datetime.time(0, 1, 0), work_end=datetime.time(23, 59, 0),
+        check_in_start=datetime.time(0, 0, 0), late_end=datetime.time(23, 58, 0),
+        check_out_end=datetime.time(23, 59, 0), is_active=True,
+    ).execute()
     yield
 
 

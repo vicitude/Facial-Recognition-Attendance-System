@@ -163,7 +163,7 @@ def test_TC_ATT_C14_checkin_confirm_check_in(
 def test_TC_ATT_C15_checkin_confirm_other_buttons(
     app, monkeypatch, face_image, sample_schedule,
 ):
-    """C-15: 签退 / 中间打卡 / 取消 三按钮行为分别符合 spec."""
+    """C-15: 无签到时签退拒绝，中间打卡已移除，取消不写入。"""
     from attendance.models import CheckRecord
     from attendance.services import EmployeeService
     from attendance.ui_checkin import CheckConfirmDialog
@@ -173,22 +173,23 @@ def test_TC_ATT_C15_checkin_confirm_other_buttons(
         position=None, phone=None, email=None,
         face_image_path=face_image, schedule_id=sample_schedule.id,
     )
+    errors = []
+    monkeypatch.setattr(
+        "attendance.ui_checkin.show_error",
+        lambda parent, code, message: errors.append((code, message)),
+    )
 
-    # 签退
+    # 没有签到记录时签退应被顺序规则拒绝，且不写库。
     dlg1 = CheckConfirmDialog(employee_id="100001", name="张三")
     dlg1.btn_out.click()
-    assert dlg1.result() == dlg1.Accepted
-    assert CheckRecord.select().where(
+    assert dlg1.result() == dlg1.Rejected
+    assert errors and errors[-1][0] == "CHECK_RULE_REJECTED"
+    assert not CheckRecord.select().where(
         CheckRecord.check_type == "check_out"
     ).exists()
 
-    # 中间打卡
-    dlg2 = CheckConfirmDialog(employee_id="100001", name="张三")
-    dlg2.btn_mid.click()
-    assert dlg2.result() == dlg2.Accepted
-    assert CheckRecord.select().where(
-        CheckRecord.check_type == "middle"
-    ).exists()
+    # SPEC-003 删除中间打卡入口。
+    assert not hasattr(dlg1, "btn_mid")
 
     # 取消: 不创建记录, dialog rejected
     records_before = CheckRecord.select().count()

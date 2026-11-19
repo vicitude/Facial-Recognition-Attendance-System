@@ -69,15 +69,62 @@ def init_db(config: dict) -> None:
     _db_instance = real_db
 
     # 把 database 绑到所有 Model
-    from attendance.models import Admin, Schedule, Employee, CheckRecord
+    from attendance.models import (
+        Admin, Schedule, Employee, EmployeeSchedule, FaceTemplate, CheckRecord,
+    )
 
-    for model in (Admin, Schedule, Employee, CheckRecord):
+    for model in (Admin, Schedule, Employee, EmployeeSchedule, FaceTemplate, CheckRecord):
         model._meta.database = real_db
 
     # 第 3 步: 建表 (safe=True, 已存在不报错)
     try:
         real_db.connect(reuse_if_open=True)
-        real_db.create_tables([Admin, Schedule, Employee, CheckRecord], safe=True)
+        real_db.create_tables(
+            [Admin, Schedule, Employee, EmployeeSchedule, FaceTemplate, CheckRecord],
+            safe=True,
+        )
+        # 兼容既有数据库：MySQL 版本不统一，先检查字段再补列。
+        schedule_columns = {row[0] for row in real_db.execute_sql("SHOW COLUMNS FROM schedules").fetchall()}
+        schedule_defs = {
+            "check_in_start": "TIME NULL",
+            "late_end": "TIME NULL",
+            "check_out_end": "TIME NULL",
+            "location_name": "VARCHAR(100) NULL",
+            "location_latitude": "DOUBLE NULL",
+            "location_longitude": "DOUBLE NULL",
+            "location_radius_m": "DOUBLE NULL",
+            "duplicate_policy": "VARCHAR(20) NOT NULL DEFAULT 'reject'",
+            "is_active": "TINYINT(1) NOT NULL DEFAULT 1",
+        }
+        for name, definition in schedule_defs.items():
+            if name not in schedule_columns:
+                real_db.execute_sql(f"ALTER TABLE schedules ADD COLUMN {name} {definition}")
+        # 为旧班次填充显式窗口，保留原 work_start/work_end 语义。
+        for schedule in Schedule.select():
+            changed = {}
+            if schedule.check_in_start is None:
+                changed["check_in_start"] = (
+                    datetime.datetime.combine(datetime.date.today(), schedule.work_start)
+                    - datetime.timedelta(minutes=60)
+                ).time()
+            if schedule.late_end is None:
+                changed["late_end"] = schedule.work_start
+            if schedule.check_out_end is None:
+                changed["check_out_end"] = (
+                    datetime.datetime.combine(datetime.date.today(), schedule.work_end)
+                    + datetime.timedelta(hours=5)
+                ).time()
+            if changed:
+                Schedule.update(**changed).where(Schedule.id == schedule.id).execute()
+        check_columns = {row[0] for row in real_db.execute_sql("SHOW COLUMNS FROM check_records").fetchall()}
+        if "status" not in check_columns:
+            real_db.execute_sql("ALTER TABLE check_records ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'normal'")
+        if "anomaly_reason" not in check_columns:
+            real_db.execute_sql("ALTER TABLE check_records ADD COLUMN anomaly_reason VARCHAR(255) NULL")
+        if "schedule_id" not in check_columns:
+            real_db.execute_sql("ALTER TABLE check_records ADD COLUMN schedule_id INT NULL")
+        if "adjusted_by_id" not in check_columns:
+            real_db.execute_sql("ALTER TABLE check_records ADD COLUMN adjusted_by_id INT NULL")
     except peewee.DatabaseError as e:
         raise DBConnectFailed(f"建表失败: {e}")
 
@@ -97,6 +144,23 @@ def init_db(config: dict) -> None:
                     int(seed["work_end"].split(":")[1]),
                     int(seed["work_end"].split(":")[2]),
                 ),
+                check_in_start=datetime.time(
+                    int(seed.get("check_in_start", "08:00:00").split(":")[0]),
+                    int(seed.get("check_in_start", "08:00:00").split(":")[1]),
+                    int(seed.get("check_in_start", "08:00:00").split(":")[2]),
+                ),
+                late_end=datetime.time(
+                    int(seed.get("late_end", seed["work_end"]).split(":")[0]),
+                    int(seed.get("late_end", seed["work_end"]).split(":")[1]),
+                    int(seed.get("late_end", seed["work_end"]).split(":")[2]),
+                ),
+                check_out_end=datetime.time(
+                    int(seed.get("check_out_end", "23:00:00").split(":")[0]),
+                    int(seed.get("check_out_end", "23:00:00").split(":")[1]),
+                    int(seed.get("check_out_end", "23:00:00").split(":")[2]),
+                ),
+                duplicate_policy="reject",
+                is_active=True,
                 late_threshold_min=seed["late"],
                 early_leave_threshold_min=seed["early"],
             )

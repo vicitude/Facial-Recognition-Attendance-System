@@ -37,3 +37,4 @@
 | [029-v1-admin-registration-code.md](029-v1-admin-registration-code.md) | v1 | spec-014, 设置码注册, 管理员, 轮换 | 专项验证通过 | attendance/services.py + attendance/ui_admin_setup.py |
 | [030-v1-color-light-quality-diagnostics.md](030-v1-color-light-quality-diagnostics.md) | v1 | spec-010, 彩光画质容错, 分色诊断 | 48 项隔离测试通过（现场待复测） | attendance/color_light_liveness.py + attendance/ui_color_liveness.py |
 | [031-v1-color-light-failure-log.md](031-v1-color-light-failure-log.md) | v1 | spec-010, 彩光失败日志 | 55 项隔离测试通过（现场待采集） | attendance/color_failure_log.py |
+| [032-v1-color-light-environment-field.md](032-v1-color-light-environment-field.md) | v1 | color-light, environment-light, diagnostics | 已实施（现场待复测） | attendance/{ui_checkin,ui_color_liveness,color_failure_log}.py |

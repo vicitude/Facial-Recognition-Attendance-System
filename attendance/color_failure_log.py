@@ -13,7 +13,8 @@ _ROW_FIELDS = ('cycle', 'color', 'samples', 'hits', 'motion_skips', 'delta_media
 
 
 def append_color_failure(reason: str, *, min_color_ratio: float, snapshot: Optional[dict] = None,
-                         config: Optional[ColorLightConfig] = None) -> bool:
+                         config: Optional[ColorLightConfig] = None,
+                         environment_light: str = 'unknown') -> bool:
     snapshot = snapshot or {}
     result = snapshot.get('result')
     metrics = result.metrics if result is not None else {}
@@ -23,8 +24,10 @@ def append_color_failure(reason: str, *, min_color_ratio: float, snapshot: Optio
         fields['quality_skips'] = {key: row['quality_skips'][key] for key in QUALITY_ISSUES
                                    if key in row['quality_skips']}
         rows.append(fields)
+    if environment_light not in {'normal', 'off', 'other', 'unknown'}:
+        environment_light = 'unknown'
     entry = dict(timestamp=datetime.now().astimezone().isoformat(timespec='seconds'),
-                 reason=reason, min_color_ratio=min_color_ratio,
+                 reason=reason, environment_light=environment_light, min_color_ratio=min_color_ratio,
                  color=result.color if result is not None else None,
                  baseline_samples=metrics.get('baseline_samples'),
                  baseline_frames=config.baseline_frames if config is not None else None,

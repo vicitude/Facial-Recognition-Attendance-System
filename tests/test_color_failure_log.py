@@ -33,6 +33,7 @@ def test_PT_CLR_13_append_baseline_failure_and_missing_data(log_path):
     text = log_path.read_text(encoding='utf-8')
     first, second = map(json.loads, text.splitlines())
     assert 'private-id' not in text and 'frame' not in first
+    assert first['environment_light'] == 'unknown'
     assert first['color'] == 'white' and first['frame_count'] == 9
     assert first['baseline_samples'] == 3 and first['baseline_luma_variance'] > .04
     assert first['baseline_chroma'] == pytest.approx([1 / 3] * 3)
@@ -54,9 +55,10 @@ def test_CT_CLR_14_dialog_terminal_logging(log_path, qtbot, monkeypatch, mode, e
     snap = {'result': outcome}
     monkeypatch.setattr(ui, 'ColorLivenessWorker', lambda *args, **kwargs: SimpleNamespace(
         stop=lambda: True, snapshot=lambda: snap))
+    assert ui.ColorLivenessDialog('123456', 'private-name', None, environment_light='off').environment_light == 'off'
     if mode == 'unwritable':
         monkeypatch.setattr(log, '_LOG_PATH', log_path.parent)
-    dialog = ui.ColorLivenessDialog('123456', 'private-name', None)
+    dialog = ui.ColorLivenessDialog('123456', 'private-name', None, environment_light='off')
     qtbot.addWidget(dialog)
     if mode in ('shown', 'unwritable'):
         dialog._show_failure(reason, '测试', snap)
@@ -80,6 +82,7 @@ def test_CT_CLR_14_startup_failure(log_path, qtbot, monkeypatch):
         raise RuntimeError('private details')
 
     monkeypatch.setattr(ui, 'ColorLivenessDialog', fail)
+    monkeypatch.setattr(ui, 'choose_environment_light', lambda parent: 'normal')
     tab = CheckInTab()
     qtbot.addWidget(tab)
     tab._camera = object()

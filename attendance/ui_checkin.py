@@ -659,8 +659,11 @@ class CheckInTab(QtWidgets.QWidget):
 
     def _verify_color_liveness(self, employee) -> bool:
         from attendance.color_failure_log import append_color_failure
-        from attendance.ui_color_liveness import ColorLivenessDialog
+        from attendance.ui_color_liveness import ColorLivenessDialog, choose_environment_light
         if self._camera is None or self._color_camera_lease is not None:
+            return False
+        environment_light = choose_environment_light(self)
+        if environment_light is None:
             return False
         self._stop_recognition_thread()
         timer, camera = self._timer, self._camera
@@ -670,7 +673,9 @@ class CheckInTab(QtWidgets.QWidget):
         accepted = False
         stopped = True
         try:
-            dialog = ColorLivenessDialog(employee.employee_id, employee.name, camera, self, min_color_ratio=self.color_liveness_ratio)
+            dialog = ColorLivenessDialog(employee.employee_id, employee.name, camera, self,
+                                  min_color_ratio=self.color_liveness_ratio,
+                                  environment_light=environment_light)
             self._color_camera_lease = (dialog, camera, timer)
             accepted = dialog.exec_() == QtWidgets.QDialog.Accepted and dialog.verified
             self.color_diagnostics_text = dialog.diagnostics_text()
@@ -679,7 +684,8 @@ class CheckInTab(QtWidgets.QWidget):
             accepted = False
             reason = 'COLOR_LIVENESS_UNAVAILABLE'
             if dialog is None:
-                append_color_failure(reason, min_color_ratio=self.color_liveness_ratio)
+                append_color_failure(reason, min_color_ratio=self.color_liveness_ratio,
+                                     environment_light=environment_light)
             else:
                 dialog.log_failure(reason)
             self._emit_status('无法完成彩色光活体验证（COLOR_LIVENESS_UNAVAILABLE），未放行。')

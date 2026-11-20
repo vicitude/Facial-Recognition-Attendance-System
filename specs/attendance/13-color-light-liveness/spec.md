@@ -9,6 +9,7 @@
 | 术语 | 英文名 | 类型 | 定义 | 代码映射 | DB | 示例 |
 |---|---|---|---|---|---|---|
 | 实际绘制代次 | epoch | 整数 | 窗口同步重绘后确认的颜色代次 | worker | 无 | white→red 为不同代次 |
+| 环境灯光 | environment_light | 枚举 | 本次检测前由用户选择：normal/off/other；旧日志为 unknown | ui_checkin / color_failure_log | 无 | normal |
 | 颜色 | color | 枚举 | off/white/red/green/blue | ScreenColorController | 无 | white |
 | 会话结果 | ColorResult | 值对象 | 数值计数与状态 | frozen dataclass | 无 | baseline 尚未满足 |
 | 相机借用 | camera ownership | 生命周期 | 子窗口后台为唯一读取方，父窗口为唯一释放方 | CheckInTab / ColorLivenessWorker | 无 | 取消后等待在途读取返回 |

@@ -43,10 +43,36 @@ _MESSAGES = {
 }
 
 
+def choose_environment_light(parent=None):
+    dialog = QtWidgets.QDialog(parent)
+    dialog.setWindowTitle('选择测试环境')
+    layout = QtWidgets.QVBoxLayout(dialog)
+    layout.addWidget(QtWidgets.QLabel('请选择当前环境灯光，并在测试期间保持不变：'))
+    group = QtWidgets.QButtonGroup(dialog)
+    choices = [('normal', '正常灯光'), ('off', '关灯'), ('other', '其他/不确定')]
+    buttons = []
+    for value, text in choices:
+        button = QtWidgets.QRadioButton(text)
+        button.setProperty('environment_light', value)
+        group.addButton(button)
+        layout.addWidget(button)
+        buttons.append(button)
+    buttons[0].setChecked(True)
+    actions = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+    actions.accepted.connect(dialog.accept)
+    actions.rejected.connect(dialog.reject)
+    layout.addWidget(actions)
+    if dialog.exec_() != QtWidgets.QDialog.Accepted:
+        return None
+    return group.checkedButton().property('environment_light')
+
+
 class ColorLivenessDialog(QtWidgets.QDialog):
-    def __init__(self, employee_id: str, name: str, capture, parent=None, *, min_color_ratio: float = 0.85):
+    def __init__(self, employee_id: str, name: str, capture, parent=None, *, min_color_ratio: float = 0.85,
+                 environment_light: str = 'unknown'):
         super().__init__(parent)
         self.employee_id = employee_id
+        self.environment_light = environment_light if environment_light in {'normal', 'off', 'other'} else 'unknown'
         self.verified = False
         self._controller = ScreenColorController()
         self._started = None
@@ -179,7 +205,7 @@ class ColorLivenessDialog(QtWidgets.QDialog):
         self._failure_logged = True
         append_color_failure(reason, min_color_ratio=self._config.min_color_ratio,
                              snapshot=snapshot if snapshot is not None else self._worker.snapshot(),
-                             config=self._config)
+                             config=self._config, environment_light=self.environment_light)
 
     def _show_failure(self, reason, progress, snapshot):
         self._failure_reason = reason

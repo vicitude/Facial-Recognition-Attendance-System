@@ -121,9 +121,10 @@ def test_CT_CLR_07_parent_does_not_read_release_or_quit_before_camera_return(qtb
     allow_return = Event()
     class Dialog:
         verified = False
-        def __init__(self, employee_id, name, capture, parent, *, min_color_ratio):
+        def __init__(self, employee_id, name, capture, parent, *, min_color_ratio, environment_light):
             assert capture is camera and parent is widget
             assert min_color_ratio == widget.color_liveness_ratio
+            assert environment_light == 'normal'
         def exec_(self):
             return QtWidgets.QDialog.Rejected
         def diagnostics_text(self):
@@ -133,6 +134,7 @@ def test_CT_CLR_07_parent_does_not_read_release_or_quit_before_camera_return(qtb
         def deleteLater(self):
             events.append('delete')
     monkeypatch.setattr(ui_color_liveness, 'ColorLivenessDialog', Dialog)
+    monkeypatch.setattr(ui_color_liveness, 'choose_environment_light', lambda parent: 'normal')
 
     assert not widget._verify_color_liveness(SimpleNamespace(employee_id='123456', name='A'))
     assert widget.color_diagnostics_text == '检测结果：未通过'

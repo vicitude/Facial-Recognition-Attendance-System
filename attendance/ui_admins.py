@@ -136,6 +136,14 @@ class AdminsTab(QtWidgets.QWidget):
         self.btn_liveness.setAccessibleName('活体试运行开关')
         settings_layout.addWidget(self.btn_liveness)
         settings_layout.addWidget(self.btn_color_liveness)
+        diagnostics = QtWidgets.QGroupBox('最近一次彩光诊断')
+        diagnostics_layout = QtWidgets.QVBoxLayout(diagnostics)
+        self.color_diagnostics_label = QtWidgets.QLabel('暂无彩光诊断')
+        self.color_diagnostics_label.setTextFormat(QtCore.Qt.PlainText)
+        self.color_diagnostics_label.setWordWrap(True)
+        self.color_diagnostics_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        diagnostics_layout.addWidget(self.color_diagnostics_label)
+        settings_layout.addWidget(diagnostics)
         layout.addWidget(settings_card)
 
         # 工具栏
@@ -184,6 +192,10 @@ class AdminsTab(QtWidgets.QWidget):
         self.btn_liveness.setChecked(bool(enabled))
         self.btn_liveness.setText('活体试运行：开启' if enabled else '活体试运行：关闭')
         self.btn_liveness.blockSignals(previous)
+
+    @QtCore.pyqtSlot(str)
+    def set_color_diagnostics(self, text: str) -> None:
+        self.color_diagnostics_label.setText(text or '暂无彩光诊断')
 
     def set_color_liveness_state(self, enabled: bool) -> None:
         previous = self.btn_color_liveness.blockSignals(True)

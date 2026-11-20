@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ColorResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "phase", "cycle", "accepted_samples", "metrics"],
+  "properties": {
+    "status": {"type": "string", "enum": ["pending", "passed", "rejected", "timeout", "error"]},
+    "phase": {"type": "string", "enum": ["disabled", "warming", "baseline", "color_challenge", "verifying", "passed", "rejected", "timeout", "error"]},
+    "color": {"type": ["string", "null"], "enum": ["off", "white", "red", "green", "blue", null]},
+    "cycle": {"type": "integer", "minimum": 0, "maximum": 2},
+    "accepted_samples": {"type": "integer", "minimum": 0, "maximum": 60},
+    "reason": {"type": ["string", "null"], "maxLength": 64},
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["color_samples", "color_hits", "color_motion_skips", "quality_issue", "color_diagnostics"],
+      "properties": {
+        "color_samples": {"type": "integer", "minimum": 0},
+        "color_hits": {"type": "integer", "minimum": 0},
+        "color_motion_skips": {"type": "integer", "minimum": 0},
+        "quality_issue": {"enum": [null, "face_too_small", "too_dark", "too_bright", "blurry", "other_quality"]},
+        "color_diagnostics": {
+          "type": "array", "maxItems": 6,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["cycle", "color", "samples", "hits", "motion_skips", "quality_skips", "delta_median", "delta_peak"],
+            "properties": {
+              "cycle": {"type": "integer", "minimum": 1, "maximum": 2},
+              "color": {"enum": ["red", "green", "blue"]},
+              "samples": {"type": "integer", "minimum": 0},
+              "hits": {"type": "integer", "minimum": 0},
+              "motion_skips": {"type": "integer", "minimum": 0},
+              "quality_skips": {
+                "type": "object",
+                "propertyNames": {"enum": ["face_too_small", "too_dark", "too_bright", "blurry", "other_quality"]},
+                "additionalProperties": {"type": "integer", "minimum": 1}
+              },
+              "delta_median": {"type": ["number", "null"]},
+              "delta_peak": {"type": ["number", "null"]}
+            }
+          }
+        },
+        "fps": {"type": "number"},
+        "frame_age_ms": {"type": "number"},
+        "baseline_luma": {"type": "number"},
+        "baseline_luma_variance": {"type": "number", "minimum": 0},
+        "baseline_chroma": {"type": "array", "minItems": 3, "maxItems": 3,
+                            "items": {"type": "number", "minimum": 0, "maximum": 1}},
+        "baseline_samples": {"type": "integer", "minimum": 0, "maximum": 10},
+        "red_delta": {"type": "number"},
+        "green_delta": {"type": "number"},
+        "blue_delta": {"type": "number"},
+        "chroma_delta": {"type": "number"},
+        "motion_score": {"type": "number"},
+         "color_ratio": {"type": "number", "minimum": 0, "maximum": 1},
+         "min_color_ratio": {"type": "number", "minimum": 0.5, "maximum": 1},
+        "identity_distance": {"type": ["number", "null"]},
+        "threshold_version": {"type": "string"}
+      }
+    }
+  }
+}

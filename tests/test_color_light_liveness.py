@@ -52,6 +52,9 @@ def test_UT_CLR_04_two_cycles_and_final_white_gate():
                 assert result.color == color
             result = s.finish_color()
     assert (result.phase, result.color, result.accepted_samples) == ('verifying', 'white', 18)
+    rows = result.metrics['color_diagnostics']
+    assert [(r['cycle'], r['color']) for r in rows] == [(c, color) for c in (1, 2) for color in s.config.sequence]
+    assert all(r['hits'] == r['samples'] == 3 for r in rows)
     assert submit(s, fid).status == 'passed'
     assert s.cancel().status == 'passed'
 
@@ -132,3 +135,54 @@ def test_UT_CLR_08_spoof_rejected_and_terminal_immutable():
     result = submit(s, 1, passive_status='spoof_candidate')
     assert result.reason == 'COLOR_PASSIVE_REJECTED'
     assert submit(s, 2) == s.cancel() == result
+
+
+@pytest.mark.parametrize('issue', ['face_too_small', 'too_dark', 'too_bright', 'blurry', None, 'unknown'])
+def test_PT_CLR_11_single_face_bad_quality_is_discarded(issue):
+    s = session()
+    for i in range(1, 4):
+        submit(s, i)
+    before = submit(s, 4, (160, 20, 20), 'red')
+    bad = submit(s, 5, color='red', quality_ok=False, quality_issue=issue,
+                 identity_vector=None, passive_status='not_evaluated')
+    normalized = issue if issue not in (None, 'unknown') else 'other_quality'
+    assert (bad.status, bad.color, bad.reason) == ('pending', 'red', 'COLOR_QUALITY_SKIPPED')
+    for key in ('color_samples', 'color_hits', 'color_motion_skips'):
+        assert bad.metrics[key] == before.metrics[key]
+    assert bad.metrics['quality_issue'] == normalized
+    assert bad.metrics['color_diagnostics'][0]['quality_skips'] == {normalized: 1}
+
+
+@pytest.mark.parametrize('overrides,reason', [
+    (dict(face_count=0, quality_ok=False), 'COLOR_WAITING_FACE'),
+    (dict(face_count=2, quality_ok=False), 'COLOR_QUALITY_REJECTED'),
+    (dict(quality_ok=False, motion_score=float('nan')), 'COLOR_QUALITY_REJECTED'),
+])
+def test_PT_CLR_11_keeps_other_rejections(overrides, reason):
+    s = session()
+    for i in range(1, 4):
+        submit(s, i)
+    result = submit(s, 4, color='red', **overrides)
+    assert (result.status, result.reason) == ('rejected', reason)
+    assert result.metrics['color_diagnostics'][0]['quality_skips'] == {}
+
+
+def test_PT_CLR_12_stats_exclude_discards_and_snapshots_are_independent():
+    s = session()
+    for i in range(1, 4):
+        submit(s, i)
+    submit(s, 4, (250, 25, 25), 'red', motion_score=.5)
+    submit(s, 5, (250, 25, 25), 'red', quality_ok=False)
+    for i, rgb in enumerate(((150, 75, 75), (180, 60, 60), (210, 45, 45)), 6):
+        submit(s, i, rgb, 'red')
+    result = s.finish_color()
+    red, green = result.metrics['color_diagnostics']
+    assert red['delta_median'] == pytest.approx(.6 - 1/3)
+    assert red['delta_peak'] == pytest.approx(.7 - 1/3)
+    assert red['hits'] == red['samples'] == 3
+    assert red['motion_skips'] == 1 and red['quality_skips'] == {'other_quality': 1}
+    assert green['color'] == 'green' and green['delta_median'] is None and green['delta_peak'] is None
+    assert result.metrics['quality_issue'] is None
+    red['quality_skips'].clear()
+    result.metrics['color_diagnostics'].clear()
+    assert s.snapshot().metrics['color_diagnostics'][0]['quality_skips'] == {'other_quality': 1}

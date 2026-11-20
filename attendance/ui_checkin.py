@@ -235,6 +235,7 @@ class CheckConfirmDialog(QtWidgets.QDialog):
 class CheckInTab(QtWidgets.QWidget):
     """实时签到 Tab - 工具栏 + 摄像头画面 + 识别回调."""
 
+    color_diagnostics_changed = QtCore.pyqtSignal(str)
     TIMER_INTERVAL_MS: int = 30
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
@@ -252,6 +253,7 @@ class CheckInTab(QtWidgets.QWidget):
         self._multi_processing = False
         self.color_liveness_enabled = False
         self.color_liveness_ratio = 0.85
+        self.color_diagnostics_text = ''
         self._color_camera_lease = None
         self._color_return_timer = QtCore.QTimer(self)
         self._color_return_timer.setInterval(80)
@@ -656,6 +658,7 @@ class CheckInTab(QtWidgets.QWidget):
         return True
 
     def _verify_color_liveness(self, employee) -> bool:
+        from attendance.color_failure_log import append_color_failure
         from attendance.ui_color_liveness import ColorLivenessDialog
         if self._camera is None or self._color_camera_lease is not None:
             return False
@@ -670,7 +673,15 @@ class CheckInTab(QtWidgets.QWidget):
             dialog = ColorLivenessDialog(employee.employee_id, employee.name, camera, self, min_color_ratio=self.color_liveness_ratio)
             self._color_camera_lease = (dialog, camera, timer)
             accepted = dialog.exec_() == QtWidgets.QDialog.Accepted and dialog.verified
+            self.color_diagnostics_text = dialog.diagnostics_text()
+            self.color_diagnostics_changed.emit(self.color_diagnostics_text)
         except Exception:
+            accepted = False
+            reason = 'COLOR_LIVENESS_UNAVAILABLE'
+            if dialog is None:
+                append_color_failure(reason, min_color_ratio=self.color_liveness_ratio)
+            else:
+                dialog.log_failure(reason)
             self._emit_status('无法完成彩色光活体验证（COLOR_LIVENESS_UNAVAILABLE），未放行。')
         finally:
             if dialog is not None:

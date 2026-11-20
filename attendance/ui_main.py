@@ -50,6 +50,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.admins_tab.set_liveness_state(self.checkin_tab.liveness_enabled)
         self.admins_tab.set_color_liveness_state(self.checkin_tab.color_liveness_enabled)
+        self.admins_tab.set_color_diagnostics(self.checkin_tab.color_diagnostics_text)
+        self.checkin_tab.color_diagnostics_changed.connect(self.admins_tab.set_color_diagnostics)
         with QtCore.QSignalBlocker(self.admins_tab.color_ratio_spin):
             self.admins_tab.color_ratio_spin.setValue(self.checkin_tab.color_liveness_ratio * 100)
         self.tabs.addTab(self.employees_tab, "人员管理")

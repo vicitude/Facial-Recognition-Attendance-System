@@ -1,0 +1,16 @@
+stateMachine: ColorLightLiveness
+initial: disabled
+states:
+  disabled:
+    on: {start: baseline, cancel: rejected}
+  baseline:
+    on: {waiting: baseline, baseline_ok: color_challenge, reject: rejected, timeout: timeout}
+  color_challenge:
+    on: {quality_skipped: color_challenge, sample: color_challenge, color_elapsed_ok: color_challenge, final_color_elapsed_ok: verifying, color_elapsed_insufficient_samples: rejected, color_elapsed_weak_response: rejected, reject: rejected, timeout: timeout}
+  verifying:
+    on: {motion_skipped: verifying, verify_ok: passed, reject: rejected, timeout: timeout}
+  warming: {reserved: true}
+  passed: {type: final}
+  rejected: {type: final}
+  timeout: {type: final}
+  error: {type: final, source: worker}

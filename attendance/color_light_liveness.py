@@ -2,8 +2,11 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
+from statistics import median
 import math
 import numpy as np
+
+QUALITY_ISSUES = ("face_too_small", "too_dark", "too_bright", "blurry", "other_quality")
 
 
 class ColorStatus(str, Enum):
@@ -90,12 +93,27 @@ class ColorLivenessSession:
         self._color_samples = self._color_hits = self._color_motion_skips = 0
         self._baseline = []
         self._baseline_chroma = None
+        self._quality_issue = None
+        self._quality_skips = {}
+        self._color_deltas = []
+        self._color_diagnostics = []
+
+    def _color_row(self):
+        return dict(cycle=self._cycle + 1, color=self._color, samples=self._color_samples,
+                    hits=self._color_hits, motion_skips=self._color_motion_skips,
+                    quality_skips=self._quality_skips.copy(),
+                    delta_median=median(self._color_deltas) if self._color_deltas else None,
+                    delta_peak=max(self._color_deltas) if self._color_deltas else None)
 
     def _result(self):
+        rows = [dict(row, quality_skips=row['quality_skips'].copy()) for row in self._color_diagnostics]
+        if self._phase == ColorPhase.COLOR_CHALLENGE.value:
+            rows.append(self._color_row())
         ratio = (self._color_hits / self._color_samples) if self._color_samples else 0.0
         metrics = dict(self._metrics, color_samples=self._color_samples,
                        color_hits=self._color_hits, color_motion_skips=self._color_motion_skips,
-                       color_ratio=ratio, min_color_ratio=self.config.min_color_ratio)
+                       color_ratio=ratio, min_color_ratio=self.config.min_color_ratio,
+                       quality_issue=self._quality_issue, color_diagnostics=rows)
         return ColorResult(self._status, self._phase, self._color, self._cycle, self._accepted, self._reason, metrics)
 
     def start(self, timestamp: float) -> ColorResult:
@@ -108,6 +126,9 @@ class ColorLivenessSession:
         return self._result()
 
     def _reject(self, reason: str, status=ColorStatus.REJECTED.value, phase=ColorPhase.REJECTED.value):
+        if self._phase == ColorPhase.COLOR_CHALLENGE.value:
+            self._color_diagnostics.append(self._color_row())
+            self._color_deltas.clear()
         self._status, self._phase, self._reason = status, phase, reason
         return self._result()
 
@@ -129,8 +150,16 @@ class ColorLivenessSession:
             return self._wait_or_reject("COLOR_WAITING_FACE" if face_count == 0 else "COLOR_QUALITY_REJECTED",
                                         baseline and face_count == 0)
         motion = frame.get("motion_score")
-        if (frame.get("quality_ok") is not True or not isinstance(motion, (int, float))
-                or not 0 <= motion <= 1):
+        quality_ok = frame.get("quality_ok")
+        motion_valid = isinstance(motion, (int, float)) and 0 <= motion <= 1
+        if (self._phase == ColorPhase.COLOR_CHALLENGE.value and quality_ok is False
+                and motion_valid):
+            issue = frame.get("quality_issue")
+            self._quality_issue = issue if isinstance(issue, str) and issue in QUALITY_ISSUES else "other_quality"
+            self._quality_skips[self._quality_issue] = self._quality_skips.get(self._quality_issue, 0) + 1
+            self._reason = "COLOR_QUALITY_SKIPPED"
+            return self._result()
+        if quality_ok is not True or not motion_valid:
             return self._wait_or_reject("COLOR_QUALITY_REJECTED", baseline)
         vector, distance = frame.get("identity_vector"), frame.get("identity_distance")
         if (not isinstance(vector, np.ndarray) or vector.shape != (128,) or vector.dtype != np.float32
@@ -158,10 +187,13 @@ class ColorLivenessSession:
             self._metrics["baseline_samples"] = len(self._baseline)
             if len(self._baseline) == self.config.baseline_frames:
                 lumas = [luma for luma, _ in self._baseline]
-                if np.var(lumas) > .04:
-                    return self._reject("COLOR_UNRESPONSIVE")
+                variance = float(np.var(lumas))
                 self._metrics["baseline_luma"] = float(np.mean(lumas))
+                self._metrics["baseline_luma_variance"] = variance
                 self._baseline_chroma = np.mean([value for _, value in self._baseline], axis=0)
+                self._metrics["baseline_chroma"] = tuple(float(v) for v in self._baseline_chroma)
+                if variance > .04:
+                    return self._reject("COLOR_UNRESPONSIVE")
                 self._baseline.clear()
                 self._phase, self._color = ColorPhase.COLOR_CHALLENGE.value, self.config.sequence[0]
         elif self._phase == ColorPhase.COLOR_CHALLENGE.value:
@@ -182,6 +214,7 @@ class ColorLivenessSession:
         delta = chroma - self._baseline_chroma
         channel = ("red", "green", "blue").index(self._color)
         score = float(delta[channel])
+        self._color_deltas.append(score)
         self._color_samples += 1
         if score >= self.config.chroma_delta_threshold and score == float(np.max(delta)):
             self._color_hits += 1
@@ -195,6 +228,10 @@ class ColorLivenessSession:
             return self._reject("COLOR_SAMPLES_INSUFFICIENT")
         if self._color_hits / self._color_samples < self.config.min_color_ratio:
             return self._reject("COLOR_UNRESPONSIVE")
+        self._color_diagnostics.append(self._color_row())
+        self._color_deltas.clear()
+        self._quality_skips.clear()
+        self._quality_issue = None
         self._color_samples = self._color_hits = self._color_motion_skips = 0
         self._reason = None
         index = self.config.sequence.index(self._color)

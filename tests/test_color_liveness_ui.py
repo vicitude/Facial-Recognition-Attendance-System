@@ -1,9 +1,17 @@
+import sys
 from threading import Event, current_thread
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 from PyQt5 import QtCore, QtGui, QtWidgets
+
+
+@pytest.fixture(autouse=True)
+def isolate_test(monkeypatch, tmp_path):
+    from attendance import color_failure_log
+    monkeypatch.setattr(sys, 'argv', sys.argv[:1])
+    monkeypatch.setattr(color_failure_log, '_LOG_PATH', tmp_path / 'failures.jsonl')
 
 
 def test_CT_CLR_11_ratio_is_passed_to_dialog(qtbot, monkeypatch):
@@ -100,14 +108,12 @@ def test_CT_CLR_04_preview_and_cancel_while_inference_is_blocked(qtbot, monkeypa
 
 def test_CT_CLR_07_parent_does_not_read_release_or_quit_before_camera_return(qtbot, monkeypatch):
     from attendance import ui_color_liveness
-    from attendance.ui_checkin import CheckInTab
-    from attendance import ui_main
+    from attendance.ui_kiosk import CheckInWindow
 
     events = []
-    window = ui_main.MainWindow.__new__(ui_main.MainWindow)
-    QtWidgets.QMainWindow.__init__(window)
+    window = CheckInWindow()
     qtbot.addWidget(window)
-    widget = window.checkin_tab = CheckInTab(window)
+    widget = window.checkin_tab
     camera = SimpleNamespace(read=lambda: events.append('read'), release=lambda: events.append('release'),
                              isOpened=lambda: True)
     widget._camera = camera
@@ -120,17 +126,18 @@ def test_CT_CLR_07_parent_does_not_read_release_or_quit_before_camera_return(qtb
             assert min_color_ratio == widget.color_liveness_ratio
         def exec_(self):
             return QtWidgets.QDialog.Rejected
+        def diagnostics_text(self):
+            return '检测结果：未通过'
         def _shutdown(self):
             return allow_return.is_set()
         def deleteLater(self):
             events.append('delete')
     monkeypatch.setattr(ui_color_liveness, 'ColorLivenessDialog', Dialog)
-    monkeypatch.setattr(ui_main, 'close_db', lambda: events.append('close_db'))
 
     assert not widget._verify_color_liveness(SimpleNamespace(employee_id='123456', name='A'))
+    assert widget.color_diagnostics_text == '检测结果：未通过'
     window.show()
     assert not window.close()
-    window._on_exit_triggered()
     assert window.isVisible()
     widget._on_timer_tick()
     widget._return_color_camera()

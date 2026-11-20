@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 import numpy as np
+import pytest
 from attendance.color_light_backend import ColorLightBackend
 
 
@@ -29,3 +30,20 @@ def test_backend_same_face_identity_quality_and_passive():
     assert facts['identity_distance'] > .8 and facts['passive_status'] == 'spoof_candidate'
     boxes[0] = (4, 0, 90, 80)
     assert backend(frame)['motion_score'] > .015
+
+
+@pytest.mark.parametrize('details,issue', [
+    (('face_too_small', 0., 0.), 'face_too_small'),
+    (('poor_quality', 19., 0.), 'too_dark'),
+    (('poor_quality', 241., 0.), 'too_bright'),
+    (('poor_quality', 100., 19.), 'blurry'),
+    ((), 'other_quality'),
+])
+def test_CT_CLR_12_quality_reason_without_model_calls(details, issue):
+    def unexpected(*args):
+        pytest.fail('bad-quality frames must not reach identity or passive inference')
+
+    backend = ColorLightBackend([np.zeros(128, np.float32)] * 3, detect=lambda frame: [(0, 0, 80, 80)],
+                                quality=lambda *args: (False, details), embed=unexpected, passive=unexpected)
+    frame = np.zeros((80, 80, 3), dtype=np.uint8)
+    assert backend(frame)['quality_issue'] == issue

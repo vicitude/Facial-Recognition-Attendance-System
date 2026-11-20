@@ -129,10 +129,11 @@ def test_CT_CLR_08_worker_holds_color_until_deadline(worker_factory, qtbot, monk
     import attendance.color_liveness_worker as module
     clock = [10.0]
     monkeypatch.setattr(module, 'monotonic', lambda: clock[0])
-    rgb = {0: (100,100,100), 1: (160,20,20), 2: (20,160,20), 3: (20,20,160), 4: (160,20,20)}
+    rgb = {0: (100,100,100), 1: (160,20,20), 2: (20,160,20), 3: (20,20,160), 4: (160,20,20), 5: (160,20,20)}
     def backend(frame):
         value = int(frame[0,0,0])
-        return dict(facts(), mean_rgb=rgb[value], motion_score=.02 if value == 4 else 0.)
+        return dict(facts(), mean_rgb=rgb[value], motion_score=.02 if value == 4 else 0.,
+                    quality_ok=value != 5, quality_issue='blurry' if value == 5 else None)
     # 此用例验证 4/6 的全窗边界，不依赖生产默认 85%。
     worker, camera = worker_factory(backend, baseline_frames=1, min_color_ratio=2 / 3)
     camera.read_starts.get(timeout=1)
@@ -154,8 +155,9 @@ def test_CT_CLR_08_worker_holds_color_until_deadline(worker_factory, qtbot, monk
         feed(0, .09)  # 已在 ACK 前开始读取，不能用
         for value in samples:
             feed(value, .04)
-            if value == 4:
-                qtbot.waitUntil(lambda: worker.snapshot()['result'].reason == 'COLOR_MOTION_SKIPPED')
+            if value in (4, 5):
+                reason = 'COLOR_MOTION_SKIPPED' if value == 4 else 'COLOR_QUALITY_SKIPPED'
+                qtbot.waitUntil(lambda: worker.snapshot()['result'].reason == reason)
                 assert worker.snapshot()['valid_count'] == count
             else:
                 count += 1
@@ -172,16 +174,17 @@ def test_CT_CLR_08_worker_holds_color_until_deadline(worker_factory, qtbot, monk
 
     apply('white', [0])
     if failure:
-        samples = [4, 1, 1] if failure == 'COLOR_SAMPLES_INSUFFICIENT' else [4, 1, 0, 0]
+        samples = [4, 1, 1, 5] if failure == 'COLOR_SAMPLES_INSUFFICIENT' else [4, 1, 5, 0, 0]
         apply('red', samples)
         failed = worker.snapshot()['result']
         assert failed.reason == failure and failed.color == 'red'
-        assert failed.metrics['color_samples'] == len(samples) - 1
+        assert failed.metrics['color_samples'] == len(samples) - 2
+        assert failed.metrics['color_diagnostics'][0]['quality_skips'] == {'blurry': 1}
         assert failed.metrics['color_hits'] == samples.count(1)
         assert failed.metrics['color_motion_skips'] == 1
         return
     for color, value in [('red',1), ('green',2), ('blue',3)]:
-        apply(color, [0, 0, value, value, value, value])  # 前三份不合格，全窗恰好 2/3
+        apply(color, [0, 0, value, value, 5, value, value])  # 前三份不合格，全窗恰好 2/3
     result = worker.snapshot()['result']
     assert (result.status, result.phase, result.accepted_samples) == ('pending', 'verifying', 18)
     apply('white', [0])

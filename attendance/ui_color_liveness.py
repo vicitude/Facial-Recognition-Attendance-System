@@ -1,5 +1,8 @@
 """彩光窗口只绘制预览和反馈，不读相机、不运行推理。"""
 from time import monotonic
+from typing import Optional
+
+from attendance.color_failure_log import append_color_failure
 
 import cv2
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -13,7 +16,18 @@ from attendance.services import FaceTemplateService
 
 _COLORS = {"white": "白光", "red": "红光", "green": "绿光", "blue": "蓝光"}
 _BACKGROUNDS = {"off": "", "white": "white", "red": "#f02020", "green": "#20d968", "blue": "#2463d4"}
+_QUALITY_LABELS = {
+    'face_too_small': '脸部太小', 'too_dark': '过暗', 'too_bright': '过亮',
+    'blurry': '模糊', 'other_quality': '其他画质问题',
+}
+_QUALITY_HINTS = {
+    'face_too_small': '请靠近一点', 'too_dark': '请增加面部照明',
+    'too_bright': '请减少面部直射光', 'blurry': '请正对镜头并保持稳定',
+    'other_quality': '请调整光线并保持人脸清晰',
+}
+_STATUS_LABELS = {'passed': '通过', 'rejected': '未通过', 'timeout': '超时', 'error': '异常', 'pending': '进行中'}
 _MESSAGES = {
+    'COLOR_QUALITY_SKIPPED': '本帧画质不足，已跳过，继续采样',
     "COLOR_WAITING_FACE": "未检测到人脸，请正面对准摄像头",
     "COLOR_QUALITY_REJECTED": "人脸数量或画面质量不符合要求",
     "COLOR_MOTION_SKIPPED": "本帧位移过大，已跳过，继续采样",
@@ -37,6 +51,8 @@ class ColorLivenessDialog(QtWidgets.QDialog):
         self._controller = ScreenColorController()
         self._started = None
         self._preview_id = 0
+        self._failure_reason = None
+        self._failure_logged = False
         key = load_or_create_key(default_key_path())
         templates = FaceTemplateService.load_employee_vectors(employee_id, key)
         self._config = ColorLightConfig(enabled=True, min_color_ratio=float(min_color_ratio))
@@ -94,13 +110,17 @@ class ColorLivenessDialog(QtWidgets.QDialog):
                 metrics = result.metrics
                 progress += (f"\n失败颜色：{_COLORS[result.color]} · 本色有效 {metrics['color_samples']} 帧"
                              f" · 色差达标 {metrics['color_hits']} 帧 · 位移丢弃 {metrics['color_motion_skips']} 帧")
-            self._show_failure(result.reason or "COLOR_INTERNAL_ERROR", progress)
+            if result.reason == 'COLOR_SAMPLES_INSUFFICIENT':
+                hint = _QUALITY_HINTS.get(result.metrics.get('quality_issue'))
+                if hint:
+                    progress += f'\n{hint}'
+            self._show_failure(result.reason or "COLOR_INTERNAL_ERROR", progress, snap)
             return
         if snap["error"] and snap["error"] != "COLOR_PERFORMANCE_INSUFFICIENT":
-            self._show_failure(snap["error"], progress)
+            self._show_failure(snap["error"], progress, snap)
             return
         if expired:
-            self._show_failure("COLOR_TIMEOUT", progress)
+            self._show_failure("COLOR_TIMEOUT", progress, snap)
             return
         if result.status == "passed":
             self.message.setText("检测已完成，正在归还摄像头。")
@@ -112,10 +132,14 @@ class ColorLivenessDialog(QtWidgets.QDialog):
                 if not self._worker.acknowledge_color(color):
                     return
             except Exception:
-                self._show_failure("COLOR_DEVICE_ERROR", progress)
+                self._show_failure("COLOR_DEVICE_ERROR", progress, snap)
                 return
         waiting = snap["error"] or result.reason
         detail = (f" · {_MESSAGES.get(waiting, '等待有效帧')}（{waiting}）" if waiting else "")
+        if waiting == 'COLOR_QUALITY_SKIPPED':
+            hint = _QUALITY_HINTS.get(result.metrics.get('quality_issue'))
+            if hint:
+                detail += f' · {hint}'
         self.message.setText(f"{_COLORS.get(color, '准备中')} · {progress} · 彩光样本 {result.accepted_samples}{detail}")
         if snap["frame_count"] != self._preview_id and snap["frame"] is not None:
             self._preview_id = snap["frame_count"]
@@ -128,8 +152,39 @@ class ColorLivenessDialog(QtWidgets.QDialog):
             image = QtGui.QImage(rgb.data, w, h, rgb.strides[0], QtGui.QImage.Format_RGB888).copy()
             self.preview.setPixmap(QtGui.QPixmap.fromImage(image))
 
-    def _show_failure(self, reason, progress):
+    def diagnostics_text(self) -> str:
+        result = self._worker.snapshot()['result']
+        reason = self._failure_reason or result.reason
+        status = result.status
+        if self._failure_reason == 'COLOR_TIMEOUT':
+            status = 'timeout'
+        elif self._failure_reason and self._failure_reason != result.reason:
+            status = 'error'
+        lines = [f'检测结果：{_STATUS_LABELS[status]}（{reason or "—"}） · 合格帧比例 {self._config.min_color_ratio:.0%}']
+
+        def points(value):
+            return '—' if value is None else f'{value * 100:+.2f} 个百分点'
+
+        for row in result.metrics.get('color_diagnostics', []):
+            skips = '、'.join(f'{label} {row["quality_skips"][key]}'
+                             for key, label in _QUALITY_LABELS.items() if key in row['quality_skips'])
+            lines.append(f'第{row["cycle"]}轮 {_COLORS[row["color"]]} · 有效 {row["samples"]} · 达标 {row["hits"]}'
+                         f' · 位移丢弃 {row["motion_skips"]} · 画质丢弃 {skips or "无"}'
+                         f' · 目标通道增量 中位数 {points(row["delta_median"])} / 峰值 {points(row["delta_peak"])}')
+        return '\n'.join(lines)
+
+    def log_failure(self, reason: str, snapshot: Optional[dict] = None) -> None:
+        if self._failure_logged:
+            return
+        self._failure_logged = True
+        append_color_failure(reason, min_color_ratio=self._config.min_color_ratio,
+                             snapshot=snapshot if snapshot is not None else self._worker.snapshot(),
+                             config=self._config)
+
+    def _show_failure(self, reason, progress, snapshot):
+        self._failure_reason = reason
         self._shutdown()
+        self.log_failure(reason, snapshot)
         self.message.setText(f"{_MESSAGES.get(reason, '彩光检测未完成')}（{reason}），未放行。\n{progress}")
         self.cancel_button.setText("关闭")
 
@@ -143,6 +198,11 @@ class ColorLivenessDialog(QtWidgets.QDialog):
 
     def done(self, result):
         stopped = self._shutdown()
+        if not self._failure_logged and not self.verified:
+            snap = self._worker.snapshot()
+            outcome = snap['result']
+            if outcome.status in ('rejected', 'timeout', 'error') and outcome.reason != 'COLOR_CANCELLED':
+                self.log_failure(outcome.reason or 'COLOR_INTERNAL_ERROR', snap)
         if not self.verified or not stopped:
             result = QtWidgets.QDialog.Rejected
         super().done(result)

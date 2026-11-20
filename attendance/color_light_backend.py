@@ -29,7 +29,7 @@ class ColorLightBackend:
 
     def __call__(self, frame) -> dict:
         start = monotonic()
-        facts = dict(face_count=0, quality_ok=False, identity_vector=None,
+        facts = dict(face_count=0, quality_ok=False, quality_issue=None, identity_vector=None,
                      identity_distance=None, passive_status="not_evaluated",
                      mean_rgb=(0.0, 0.0, 0.0), motion_score=0.0, timings_ms={})
         if (isinstance(frame, np.ndarray) and frame.dtype == np.uint8 and frame.ndim == 3
@@ -44,14 +44,27 @@ class ColorLightBackend:
                 if x1 < x2 and y1 < y2:
                     self._measure(frame, (x1, y1, x2, y2), facts)
         if not facts["quality_ok"]:
+            if facts["face_count"] == 1 and facts["quality_issue"] is None:
+                facts["quality_issue"] = "other_quality"
             self._previous = None
         facts["timings_ms"]["color_stats_ms"] = (monotonic() - start) * 1000
         return facts
 
     def _measure(self, frame, box, facts):
         x1, y1, x2, y2 = box
-        facts["quality_ok"] = bool(self._quality(frame, box)[0])
-        if not facts["quality_ok"]:
+        ok, details = self._quality(frame, box)
+        facts["quality_ok"] = bool(ok)
+        if not ok:
+            if isinstance(details, (tuple, list)) and len(details) == 3:
+                reason, brightness, sharpness = details
+                if reason == "face_too_small":
+                    facts["quality_issue"] = reason
+                elif isinstance(brightness, (int, float)) and brightness < 20:
+                    facts["quality_issue"] = "too_dark"
+                elif isinstance(brightness, (int, float)) and brightness > 240:
+                    facts["quality_issue"] = "too_bright"
+                elif isinstance(sharpness, (int, float)) and sharpness < 20:
+                    facts["quality_issue"] = "blurry"
             return
         height, width = frame.shape[:2]
         position = np.array([x1 / width, y1 / height, x2 / width, y2 / height])
